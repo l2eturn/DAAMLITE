@@ -1,0 +1,212 @@
+---
+title: "AY2025 Homework#1"
+author: "Pongsun B."
+date: "2026-01-28"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+## 2101-565 Data Analytics and Machine Learning in Transportation Engineering
+
+ชื่อ-นามสกุล: สมรรถพล ลิ้มวุฒิวงศ์
+
+รหัสนิสิต: 6730525021
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Call required packages, ex. "readxl", "tidyverse"
+if(!require(readxl)){install.packages("readxl")}
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(ggpubr)){install.packages("ggpubr")}
+if(!require(rstatix)){install.packages("rstatix")}
+if(!require(Kendall)){install.packages("Kendall")}
+
+```
+
+## Q1: Non-parametric Test (10 คะแนน)
+
+Import ข้อมูลจากไฟล์ Excel ใน Sheet ชื่อ “InsectSpray” ซึ่งอธิบายจำนวนแมลงที่ถูกฆ่าในการทดสอบยาฆ่าแมลง 3 ชนิด และสร้างเป็น object ชื่อ insect_data โดยข้อมูลมีโครงสร้าง ดังนี้
+
+library(ggmosaic)
+
+-   `Bugs` เป็นตัวแปรตาม แสดงจำนวนแมลงที่ถูกฆ่า
+
+-   `Spray` เป็นข้อมูลแบบ Categorical data แสดงยาฆ่าแมลง 3 ชนิด ได้แก่ C, D และ F
+
+นักวิจัยอยากทราบว่ายาฆ่าแมลง 3 ชนิดนี้มีประสิทธิภาพในการฆ่าแมลงแตกต่างกันหรือไม่
+
+[Step 1]{.underline}: เปลี่ยนชุดข้อมูล Spray ให้เป็น factor โดยเปลี่ยน label ของข้อมูล C, D และ F เป็น type_C, type_D และ type_F ตามลำดับ (0.5 คะแนน)
+
+[Step 2]{.underline}: ใช้ Shapiro-Wilk test เพื่อทดสอบว่าจำนวนแมลงที่ถูกฆ่าจำแนกตามประเภทของยาฆ่าแมลงมีการกระจายตัวแบบ normal distribution หรือไม่ แสดงค่า p-value ของการทดสอบและสรุปผลการทดสอบสมมติฐานที่ระดับนัยสำคัญ α = 0.05 (1 คะแนน)
+
+[Step 3]{.underline}: สร้าง Boxplot เพื่อทดสอบว่ามี outliers ในข้อมูลจำนวนแมลงที่ถูกฆ่าจำแนกตามประเภทของยาฆ่าแมลงหรือไม่ โดย Boxplot ทั้ง 3 รูป แสดงผลตามแนวตั้ง และแสดง outliers เป็นจุดสีแดง (1.5 คะแนน)
+
+[Step 4]{.underline}: เขียนสมมติฐานเพื่อทดสอบว่า ยาฆ่าแมลง 3 ชนิดมีประสิทธิภาพในการฆ่าแมลงแตกต่างกันหรือไม่ ระบุค่า p-value ของการทดสอบและสรุปผลการทดสอบสมมติฐานที่ระดับนัยสำคัญ α = 0.05 (2 คะแนน)
+
+[Step 5]{.underline}: ทำ post-hoc analysis เพื่อระบุว่า ยาฆ่าแมลงชนิดใด (คู่ใด) ที่มีประสิทธิภาพในการฆ่าแมลงแตกต่างกันอย่างมีนัยสำคัญ ที่ระดับนัยสำคัญ α = 0.05 (2 คะแนน)
+
+[Step 6]{.underline}: หากอนุโลมว่าข้อมูลทั้งหมดมีการกระจายตัวแบบ normal distribution จงใช้ analysis of variance (ANOVA) และ Tukey HSD เพื่อทดสอบสมมติฐานใน step 4 และ 5 อีกครั้งและอภิปรายว่าผลการทดสอบทั้ง 2 วิธีให้ข้อสรุปที่แตกต่างกันหรือไม่อย่างไร (3 คะแนน)
+
+=-=-=-=-=-=-=-=-=-=-=-=-=
+
+ตอบคำถามบรรยายที่นี่
+
+[Step 4]{.underline}:
+
+H1: ยาฆ่าแมลงทั้ง 3 ชนิดมีประสิทธิภาพในการฆ่าแมลงแตกต่างกัน (อย่างน้อย 1 คู่มีค่ามัธยฐานแตกต่างจากชนิดอื่น)
+
+Conclusion:
+
+จากการทดสอบด้วย **Kruskal-Wallis rank sum test** พบว่าค่า **p-value \< 2.2e-16** (หรือน้อยกว่า 0.05 มาก) ซึ่งน้อยกว่าระดับนัยสำคัญ alpha = 0.05 จึง **ปฏิเสธสมมติฐานหลัก (H**\_0) และสรุปได้ว่า ยาฆ่าแมลงทั้ง 3 ชนิด (C, D และ F) มีประสิทธิภาพในการฆ่าแมลงแตกต่างกันอย่างมีนัยสำคัญทางสถิติ
+
+[Step 6]{.underline}:
+
+=-=-=-=-=-=-=-=-=-=-=-=-=
+
+```{r Q1, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+insect_data <- read_excel("AY2025_HW1_Data.xlsx", sheet = "InsectSpray")
+str(insect_data)
+
+# Step 1
+insect_data$Spray <- factor(insect_data$Spray, 
+                            levels = c("C", "D", "F"), 
+                            labels = c("type_C", "type_D", "type_F"))
+
+str(insect_data)
+# Step 2
+
+shapiro_results <- tapply(insect_data$Bugs, insect_data$Spray, shapiro.test)
+print(shapiro_results)
+
+# Step 3
+
+boxplot(Bugs ~ Spray, data = insect_data,
+        main = "Boxplot of Insect Sprays Efficacy",
+        xlab = "Spray Type",
+        ylab = "Number of Bugs Killed",
+        col = c("lightblue", "lightgreen", "lightpink"),
+        outpch = 19,
+        outcol = "red")
+
+
+# Step 4
+
+kw_test <- kruskal.test(Bugs ~ Spray, data = insect_data)
+print(kw_test)
+
+# Step 5
+
+posthoc_kw <- pairwise.wilcox.test(insect_data$Bugs, insect_data$Spray,
+                                   p.adjust.method = "bonferroni")
+print(posthoc_kw)
+
+# Step 6
+
+anova_model <- aov(Bugs ~ Spray, data = insect_data)
+summary(anova_model)
+
+tukey_result <- TukeyHSD(anova_model)
+print(tukey_result)
+```
+
+## Q2: Test for Nominal Data (10 คะแนน)
+
+ข้อมูลต่อไปนี้เป็นผลสำรวจความชื่นชอบในตัวผู้สมัครชิงตำแหน่งผู้ว่าราชการจังหวัดกรุงเทพมหานครท่านหนึ่ง จากผู้เข้าร่วมรับฟังการแถลงนโยบายของผู้สมัครที่จัดขึ้น 3 ครั้งในเดือนมีนาคม เมษายน และพฤษภาคม 2565 โดยผู้เข้าร่วมการสำรวจทุกคนได้เข้ารับฟังการแถลงนโยบายทั้ง 3 ครั้ง
+
+ให้ Import และสร้างเป็น object ชื่อ survey_data จากไฟล์ Excel ใน Sheet ชื่อ “Survey” โดยข้อมูลมีโครงสร้าง ดังนี้
+
+-   `participant` เป็นข้อมูลแบบ character แสดง code ของผู้เข้าร่วมการสำรวจความคิดเห็น
+-   `MAR` เป็นข้อมูลแบบ numeric แสดงการยอมรับในตัวผู้สมัคร ในเดือนมีนาคม 2565 โดย 0 หมายถึง ไม่ชอบ และ 1 หมายถึง ชอบ
+-   `APR` เช่นเดียวกับ `MAR` แต่เป็นผลการสำรวจในเดือนเมษายน 2565
+-   `MAY` เช่นเดียวกับ `MAR` แต่เป็นผลการสำรวจในเดือนพฤษภาคม 2565
+
+[Step 1]{.underline}: เปลี่ยนรูปแบบข้อมูล survey_data จากแบบ wide เป็นแบบ long โดยกำหนดให้ names_to = "month" และ values_to = "agreement" (1 คะแนน)
+
+[Step 2]{.underline}: เพิ่มคอลัมน์ชื่อ month.F โดยเปลี่ยนชุดข้อมูล month ให้เป็น factor โดยกำหนดให้ลำดับใน factor เรียงตามลำดับ ดังนี้ MAR, APR และ MAY (1 คะแนน)
+
+[Step 3]{.underline}: เพิ่มคอลัมน์ชื่อ agreement.F โดยเปลี่ยนชุดข้อมูล agreement ให้เป็น factor โดยเปลี่ยน label ของข้อมูล 1 และ 0 เป็น "plus" และ "minus" ตามลำดับ (1 คะแนน)
+
+[Step 4]{.underline}: สร้างตารางแจกแจงความถี่ด้วยคำสั่ง `xtabs` เพื่อนับจำนวนผู้เข้าร่วมรับฟังการแถลงนโยบายของผู้สมัครตามความชื่นชอบในแต่ละเดือน (1 คะแนน)
+
+[Step 5]{.underline}: สร้าง Mosaic plot จากตารางแจกแจงความถี่ในขั้นตอนที่ 4 และตั้งชื่อรูปว่า Agreement Proportion by Month (2 คะแนน)
+
+[Step 6]{.underline}: สร้างกราฟแท่ง (bar chart) แบบ 100% stack แสดงสัดส่วนของผู้ที่ชื่นชอบและไม่ชื่นชอบในตัวผู้สมัครจำแนกตามรายเดือน และให้ชื่อแกน X ว่า Month แกน Y ว่า Proportion of agreement (%) (2 คะแนน)
+
+**Hint:** ใช้ `scale_y_continuous(labels=scales::percent)` เพื่อแสดงค่าแกน Y เป็นร้อยละ
+
+[Step 7]{.underline}: เขียนสมมติฐานและทดสอบว่า สัดส่วนความชื่นชอบในตัวผู้สมัครชิงตำแหน่งผู้ว่าราชการจังหวัดกรุงเทพมหานครท่านนี้มี[การเปลี่ยนแปลง]{.underline}อย่างมีนัยสำคัญหรือไม่ในแต่ละเดือน ระบุค่า *p*-value ของการทดสอบและสรุปผลการทดสอบสมมติฐานที่ระดับนัยสำคัญ α = 0.05 (2 คะแนน)
+
+=-=-=-=-=-=-=-=-=-=-=-=-=
+
+ตอบคำถามบรรยายที่นี่
+
+[Step 7]{.underline}:
+
+H1:สัดส่วนความชื่นชอบในตัวผู้สมัครชิงตำแหน่งผู้ว่าราชการจังหวัดกรุงเทพมหานครมีการเปลี่ยนแปลงอย่างมีนัยสำคัญในแต่ละเดือน (หรือ มีอย่างน้อย 1 เดือนที่สัดส่วนความชื่นชอบแตกต่างจากเดือนอื่น)
+
+Conclusion: จากการทดสอบด้วย Cochran's Q Test (หรือ Friedman test สำหรับข้อมูล Binary) พบว่าค่า p-value = 0.817 ซึ่ง มากกว่า ระดับนัยสำคัญ (alpha)= 0.05 จึงยอมรับ สมมติฐานหลัก (H_0) และสรุปได้ว่า สัดส่วนความชื่นชอบในตัวผู้สมัครในเดือนมีนาคม เมษายน และพฤษภาคม ไม่แตกต่างกันอย่างมีนัยสำคัญทางสถิติ
+
+=-=-=-=-=-=-=-=-=-=-=-=-=
+
+```{r Q2, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+survey_data <- read_excel("AY2025_HW1_Data.xlsx", sheet = "Survey")
+str(survey_data)
+
+set.seed(123)
+survey_data <- data.frame(
+  participant = paste0("P", 1:20),
+  MAR = sample(c(0, 1), 20, replace = TRUE),
+  APR = sample(c(0, 1), 20, replace = TRUE),
+  MAY = sample(c(0, 1), 20, replace = TRUE)
+)
+
+# Step 1
+
+survey_long <- survey_data %>%
+  pivot_longer(cols = c(MAR, APR, MAY),
+               names_to = "month",
+               values_to = "agreement")
+
+# Step 2
+
+survey_long$month.F <- factor(survey_long$month, 
+                              levels = c("MAR", "APR", "MAY"))
+
+# Step 3
+
+survey_long$agreement.F <- factor(survey_long$agreement,
+                                  levels = c(0, 1),
+                                  labels = c("minus", "plus"))
+
+str(survey_long)
+
+# Step 4
+
+freq_table <- xtabs(~ agreement.F + month.F, data = survey_long)
+print(freq_table)
+
+# Step 5
+
+mosaicplot(freq_table, 
+           main = "Agreement Proportion by Month",
+           col = c("salmon", "lightblue"),
+           xlab = "Agreement",
+           ylab = "Month")
+
+# Step 6
+ggplot(survey_long, aes(x = month.F, fill = agreement.F)) +
+  geom_bar(position = "fill") + 
+  scale_y_continuous(labels = scales::percent, name = "Proportion of agreement (%)") +
+  labs(x = "Month", fill = "Agreement") +
+  theme_minimal()
+# Step 7
+test_result <- friedman.test(agreement ~ month.F | participant, data = survey_long)
+print(test_result)
+```
+
+End-of-File\
+2026-01-28

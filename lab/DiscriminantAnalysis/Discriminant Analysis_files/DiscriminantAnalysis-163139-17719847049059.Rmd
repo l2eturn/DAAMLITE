@@ -1,0 +1,390 @@
+---
+title: "Discriminant Analysis"
+author: "Pongsun B."
+date: "2026-02-04"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(mlr)){install.packages("mlr", dependencies = TRUE)}
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(HDclassif)){install.packages("HDclassif")}
+
+```
+
+### 1. What is discriminant analysis?
+
+*Discriminant analysis* is an umbrella term for multiple algorithms that solve classification problems (where we wish to predict a categorical variable) in a similar way. While there are various discriminant analysis algorithms that learn slightly differently, they all find a new representation of the original data that maximizes the separation between the classes.
+
+Predictor variables are the variables we hope contain the information needed to make predictions on new data. Discriminant function analysis algorithms find a new representation of the predictor variables (which must be continuous) by combining them together into new variables that best *discriminate* the classes. This combination of predictor variables often has the handy benefit of reducing the number of predictors to a much smaller number. Because of this, despite discriminant analysis algorithms being classification algorithms, they are similar to some of the dimension-reduction algorithms.
+
+Imagine that you want to find out if you can predict how patients will respond to a drug based on their gene expression. You measure the expression level of 1,000 genes and record whether they respond positively, negatively, or not at all to the drug (a three-class classification problem).
+
+A dataset that has as many predictor variables as this (and it isn’t rare to find datasets this large) presents a few problems:
+
+-   The data is very difficult to explore and plot manually.
+
+-   There may be many predictor variables that contain no or very little predictive information.
+
+-   We have the *curse of dimensionality* to contend with (a problem algorithms encounter when trying to learn patterns in high-dimensional data).
+
+In our gene expression example, it would be nearly impossible to plot all 1,000 genes in such a way that we could interpret the similarities/differences between the classes. Instead, we could use discriminant analysis to take all that information and condense it into a manageable number of *discriminant functions*, each of which is a combination of the original variables. Put another way, discriminant analysis takes the predictor variables as input and finds a new, lower-dimensional representation of those variables that maximizes the separation between the classes. Therefore, while discriminant analysis is a classification technique, it employs dimension reduction to achieve its goal. This is illustrated in **Figure 1**.
+
+![](images/clipboard-991257876.png)
+
+**Figure 1:** Discriminant analysis algorithms take the original data and combine continuous predictor variables together into new variables that maximize the separation of the classes.
+
+The number of these discriminant functions will be the smaller of these:
+
+-   The number of classes minus 1
+
+-   The number of predictor variables
+
+In the gene expression example, the information contained in those 1,000 predictor variables would be condensed into just 2 variables (three classes minus 1). We could now easily plot these two new variables against each other to see how separable our three classes are!
+
+Including predictor variables that contain little or no predictive value adds noise, which can negatively impact how the learned model performs. When discriminant analysis algorithms learn their discriminant functions, greater weight or importance is given to predictors that better discriminate the classes. Predictors that contain little or no predictive value are given less weight and contribute less to the final model. To a degree, this lower weighting of uninformative predictors mitigates their impact on model performance.
+
+Despite mitigating the impact of weak predictors, a discriminant analysis model will still tend to perform better after performing **feature selection** (removing weakly predictive predictors).
+
+The *curse of dimensionality* is a terrifying-sounding phenomenon that causes problems when working with high-dimensional data (data with many predictor variables). As the *feature space* (the set of all possible combinations of predictor variables) increases, the data in that space becomes more *sparse*. Put more plainly, for the same number of cases in a dataset, if you increase the feature space, the cases get further apart from each other, and there is more empty space between them. This is demonstrated in **Figure 2** by going from a one-feature space to a three-feature space. The consequence of this increase in dimensionality is that an area of the feature space may have very few cases occupying it, so an algorithm is more likely to learn from “exceptional” cases in the data. When algorithms learn from exceptional cases, this results in models that are overfit and have a lot of variance in their predictions. This is the *curse of dimensionality*.
+
+![](images/clipboard-543566725.png)
+
+**Figure 2:** Data becomes more sparse as the number of dimensions increases. Two classes are shown in one-, two-, and three-dimensional feature spaces. The dotted lines in the three-dimensional representation are to clarify the position of the points along the z-axis. Note the increasing empty space with increased dimensions.
+
+```         
+NOTE: As the number of predictor variables increases linearly, the number of cases would need to increase exponentially to maintain the same density in the feature space.
+```
+
+This isn’t to say that having more variables is bad, however! For most problems, adding predictors with valuable information improves the predictive accuracy of a model . . . until it doesn’t (until we get diminishing returns). So how do we guard against overfitting due to the *curse of dimensionality*? By performing **feature selection** to include only variables that have predictive value, and/or by performing dimension reduction. The discriminant analysis actually performs dimension reduction as part of its learning procedure.
+
+```         
+NOTE The phenomenon of the predictive power of a model increasing as the number of predictor variables increases, but then decreasing again as we continue to add more predictors, is called the Hughes phenomenon, after the statistician G. Hughes.
+```
+
+Discriminant analysis isn’t one algorithm but instead comes in many flavors. I’m going to teach you the two most fundamental and commonly used algorithms:
+
+-   Linear discriminant analysis (LDA)
+
+-   Quadratic discriminant analysis (QDA)
+
+LDA and QDA learn linear (straight-line) and curved decision boundaries between classes, respectively.
+
+#### 1.1 How does discriminant analysis learn?
+
+I’ll start by explaining how LDA works, and then I’ll generalize this to QDA. Imagine that we have two predictor variables we are trying to use to separate two classes in our data (see **Figure 3**). LDA aims to learn a new representation of the data that separates the *centroid* of each class, while keeping the within-class variance as low as possible. A *centroid* is simply the point in the feature space that is the mean of all the predictors (a vector of means, one for each dimension). Then LDA finds a line through the origin that, when the data is *projected* onto it, simultaneously does the following:
+
+-   Maximizes the difference between the class centroids along the line
+
+-   Minimizes the within-class variance along the line
+
+![](images/clipboard-2776534573.png)
+
+**Figure 3:** Learning a discriminant function in two dimensions. LDA learns a new axis such that, when the data is projected onto it (dashed lines), it maximizes the difference between class means while minimizing intra-class variance. $\overline{x}$ and $s^2$ are the mean and variance of each class along the new axis, respectively.
+
+To choose this line, the algorithm maximizes the expression in **Equation 1** over all possible axes:
+
+|                                      |            |
+|:------------------------------------:|:----------:|
+| ![](images/clipboard-1396228163.png) | Equation 1 |
+
+The numerator is the difference between the class means ( $\bar{x_1}$ and $\bar{x_2}$ for the means of class 1 and class 2, respectively), squared to ensure that the value is positive (because we don’t know which will be bigger). The denominator is the sum of variances of each class along the line ($s_1^2$ and for the $s_2^2$ variances of class 1 and class 2, respectively). The intuition behind this is that we want the means of the classes to be as separated as possible, with the scatter/variance within each class to be as small as possible.
+
+*Why not simply find the line that maximizes the separation of the centroids?*
+
+Because the line that best separates the centroids doesn’t guarantee the best separation of the cases in the different classes. This is illustrated in **Figure 4**. In the example on the left, a new axis is drawn that simply maximizes the separation of the centroids of the two classes. When we project the data onto this new axis, the classes are not fully resolved because the relatively high variance means they overlap with each other. In the example on the right, however, the new axis tries to maximize centroid separation while minimizing the variance of each class along that axis. This results in centroids that are slightly closer together, but much smaller variances, such that the cases from the two classes are fully separated.
+
+![](images/clipboard-2436464764.png)
+
+**Figure 4:** Constructing a new axis that only maximizes class centroid separation doesn’t fully resolve the classes (left example). Constructing a new axis that maximizes centroid separation while also minimizing variance within each class results in better separation of the classes (right). and s2 are the mean and variance of each class along the new axis, respectively.
+
+This new axis is called a **discriminant function**, and it is a linear combination of the original variables. For example, a discriminant function could be described by this equation:
+
+$$ DF = \ –0.5 × var_1 + 1.2 × var_2 + 0.85 × var_3 $$
+
+In this way, the discriminant function (DF) in this equation is a linear combination of variables $var_1$, $var_2$ and $var_3$. The combination is linear because we are simply adding together the contributions from each variable. The values that each variable is multiplied by are called the *canonical discriminant function* coefficients and weight each variable by how much it contributes to class separation. In other words, variables that contribute most to class separation will have larger absolute canonical DF coefficients (positive or negative). Variables that contain little or no class-separation information will have canonical DF coefficients closer to zero.
+
+#### 1.2 What if we have more than two classes?
+
+Discriminant analysis can handle classification problems with more than two classes. But how does it learn the best axis in this situation? Instead of trying to maximize the separation between class centroids, it maximizes the separation between each class centroid and the *grand centroid* of the data (the centroid of all the data, ignoring class membership). This is illustrated in Figure 5, where we have two continuous measurements made on cases from three classes. The class centroids are shown with triangles, and the grand centroid is indicated by a cross.
+
+![](images/clipboard-2258376561.png)
+
+Figure 5: When there are more than two classes, LDA maximizes the distance between each class centroid (triangles) and the grand centroid (cross) while minimizing intra-class variance. Once the first discriminant function is found, a second is constructed that is orthogonal to it. The original data can be plotted against these functions.
+
+LDA first finds the axis that best separates the class centroids from the grand centroid that minimizes the variance of each class along it. Then, LDA constructs a second DF that is orthogonal to the first. This simply means the second DF must be perpendicular to the first (at a right angle in this 2D example).
+
+```         
+NOTE: The number of DFs will be whichever is smaller: (number of classes) minus 1, or the number of predictor variables.
+```
+
+The data is then projected onto these new axes such that each case gets a discriminant score for each function (its value along the new axis). These discriminant scores can be plotted against each other to form a new representation of the original data. But what’s the big deal? We’ve gone from having two predictor variables to having . . . two predictor variables! In fact, can you see that all we’ve done is center and scale the data, and rotate it around zero? When we only have two variables, discriminant analysis cannot perform any dimension reduction because the number of DFs is the smaller of the number of classes minus 1 and the number of variables (and we only have two variables).
+
+But what about when we have more than two predictor variables? **Figure 6** shows an example where we have three predictor variables ($x$, $y$, and $z$) and three classes. Just as in **Figure 5**, LDA finds the DF that maximizes the separation between each class centroid and the grand centroid, while minimizing the variance along it. This line extends through a three-dimensional space.
+
+![](images/clipboard-2460837708.png)
+
+**Figure 6:** When there are more than two predictors, the cube represents a feature space with three predictor variables (x, y, and z) and three classes (dotted lines help indicate the position of each case along the z-axis). Discriminant function 1 (DF1) is found, and then DF2, which is orthogonal to DF1, is found. Dotted lines indicate “shadows” of DF1 and DF2 to help show their depth along the z-axis. The data can be projected onto DF1 and DF2.
+
+Next, LDA finds the second DF (which is orthogonal to the first), which also tries to maximize separation while minimizing variance. Because we only have three classes (and the number of DFs is the smaller of the number of classes minus 1 or the number of predictors), we stop at two DFs. By taking the discriminant scores of each case in the data (the values of each case along the two DFs), we can plot our data in only two dimensions.
+
+```         
+NOTE: The first DF always does the best job at separating the classes, followed by the second, the third, and so on.
+```
+
+LDA has taken a three-dimensional dataset and combined the information in those three variables into two new variables that maximize the separation between the classes. That’s pretty cool—but if instead of just three predictor variables we had 1,000 (as in the example I used earlier), LDA would *still* condense all this information into only 2 variables! That’s super cool.
+
+#### 1.3 Learning curves instead of straight lines: QDA
+
+LDA performs well if the data within each class is **normally distributed** across all the predictor variables, and the classes have similar *covariances*. Covariance simply means how much one variable increases/decreases when another variable increases/decreases. So LDA assumes that for each class in the dataset, the predictor variables *covary* with each other the same amount.
+
+This often isn’t the case, and classes have different covariances. In this situation, QDA tends to perform better than LDA because it doesn’t make this assumption (though it still assumes the data is normally distributed). Instead of learning straight lines that separate the classes, QDA learns curved lines. It is also well suited, therefore, to situations in which classes are best separated by a nonlinear decision boundary. This is illustrated in **Figure 7**.
+
+![](images/clipboard-14438483.png)
+
+**Figure 7:** Examples of two classes which have equal covariance (the relationship between variable 1 and 2 is the same for both classes) and different covariances. Ovals represent distributions of data within each class. Quadratic and linear DFs (QDF and LDF) are shown. The projection of the classes with different covariances onto each DF is shown.
+
+In the example on the left in the figure, the two classes are normally distributed across both variables and have equal covariances. We can see that the covariances are equal because, for both classes, as variable 1 increases, variable 2 decreases by the same amount. In this situation, LDA and QDA will find similar DFs, although LDA is slightly less prone to overfitting than QDA because it is less flexible.
+
+In the example on the right in the figure, the two classes are normally distributed, but their covariances are different. In this situation, QDA will find a curved DF that, when the data is projected onto it, will tend to do a better job of separating the classes than a linear DF.
+
+#### 5.1.4. How do LDA and QDA make predictions?
+
+Whichever method you’ve chosen, the DFs have been constructed, and you’ve reduced your high-dimensional data into a small number of discriminants. How do LDA and QDA use this information to classify new observations? They use an extremely important statistical theorem called *Bayes’ rule*.
+
+Bayes’rule provides us with a way of answering the following question: given the values of the predictor variables for any case in our data, what is the probability of that case belonging to class k? This is written as *p(k\|x)*, where *k* represents membership in class k, and *x* represents the values of the predictor variables. We would read this as “the probability of belonging to class k, given the data, *x*.” This is given by Bayes’ rule:
+
+![](images/clipboard-1416554465.png)
+
+Don’t be scared by this! There are only four terms in the equation, and I’m going to walk you through them. You already know *p(k\|x)* is the probability of a case belonging to class k given the data. This is called the *posterior probability*.
+
+*p(x\|k)* is the same thing, but flipped around: what is the probability of observing this data, given the case belongs to class k? Put another way: if this case *was* in class k, what is the *likelihood* of it having these values of the predictor variables? This is called the *likelihood*.
+
+*p(k)* is called the *prior probability* and is simply the probability of any case belonging to class k. This is the proportion of all cases in the data that belong to class *k*. For example, if 30% of cases were in class k, *p(k)* would equal 0.3.
+
+Finally, *p(x)* is the probability of observing a case with exactly these predictor values in the dataset. This is called the *evidence*. Estimating the evidence is often very difficult (because each case in the dataset may have a unique combination of predictor values), and it only serves to make all the posterior probabilities sum to 1. Therefore, we can omit the evidence from the equation and say that where the $∝$ symbol means the values on either side of it are *proportional* to each other instead of *equal* to each other. In a more digestible way,
+
+$$
+posterior ∝ likelihood × prior
+$$
+
+The prior probability for a case (*p(k)*) is easy to work out: it’s the proportion of cases in the dataset that belong to class *k*. But how do we calculate the likelihood (*p(x\|k)*)? The likelihood is calculated by projecting the data onto its DFs and estimating its *probability density*. The probability density is the relative probability of observing a case with a particular combination of discriminant scores.
+
+Discriminant analysis assumes that the data is normally distributed, so it estimates the probability density by fitting a normal distribution to each class across each DF. The center of each normal distribution is the class centroid, and its standard deviation is one unit on the discriminant axis. This is illustrated in **Figure 8** for a single DF and for two DFs (the same thing happens in more than two dimensions but is difficult to visualize). You can see that cases near the class centroid along the discriminant axes have a high probability density for that class, and cases far away have a lower probability density.
+
+![](images/clipboard-3705852602.png)
+
+**Figure 8:** The probability density of each class is assumed to be normally distributed, where the center of each distribution is the centroid of the class. This is shown for one DF (for classes k and j) and for two.
+
+Once the probability density is estimated for a case for a given class, it can be passed into the equation:
+
+$$
+posterior = likelihood × prior 
+$$
+
+The posterior probability is estimated for each class, and the class that has the highest probability is what the case is classified as.
+
+```         
+NOTE: The prior probability (proportion of cases in that class) is important because if the classes are severely imbalanced, despite a case being far from the centroid of a class, the case could be more likely to belong to that class simply because there are so many more cases in it.
+```
+
+### 2. Building your first linear and quadratic discriminant models
+
+In this section, you’ll learn how to build and evaluate the performance of linear and quadratic discriminant analysis models. Imagine that you’re a detective in a murder mystery. A local wine producer, Ronald Fisher, was poisoned at a dinner party when someone replaced the wine in the carafe with wine poisoned with arsenic.
+
+Three other (rival) wine producers were at the party and are your prime suspects. If you can trace the wine to one of those three vineyards, you’ll find your murderer. As luck would have it, you have access to some previous chemical analysis of the wines from each of the vineyards, and you order an analysis of the poisoned carafe at the scene of the crime. Your task is to build a model that will tell you which vineyard the wine with the arsenic came from and, therefore, the guilty party.
+
+Let’s load the wine data built into the HDclassif package (after installing it), convert it into a tibble, and explore it a little. We have a tibble containing 178 cases and 14 variables of measurements made on various wine bottles.
+
+```{r LOAD AND CLEAN DATA, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+data(wine, package = "HDclassif")
+
+wineTib <- as_tibble(wine)
+names(wineTib) <- c("Class", "Alco", "Malic", "Ash", "Alk", "Mag", 
+                    "Phe", "Flav", "Non_flav", "Proan", "Col", "Hue", 
+                    "OD", "Prol")
+wineTib$Class <- as_factor(wineTib$Class)
+
+wineTib
+
+```
+
+Often, as data scientists, we receive data that is messy or not well curated. In this case, the names of the variables are missing! We could continue working with `V1`, `V2`, and so on, but it would be hard to keep track of which variable is which. So we’re going to manually add the variable names. Who said the life of a data scientist was glamorous? Then, we’ll convert the `class` variable to a factor.
+
+We have 13 continuous measurements made on 178 bottles of wine, where each measurement is the amount of a different compound/element in the wine. We also have a single categorical variable, Class, which tells us which vineyard the bottle comes from.
+
+#### 2.2 Plotting the data
+
+Let’s plot the data to get an idea of how the compounds vary between the vineyards. Firstly, we need to gather the data into an untidy format so we can facet by each of the variables.
+
+```{r PLOTTING THE DATA, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+wine_long <- pivot_longer(data = wineTib, 
+                          names_to = "Variable", 
+                          values_to = "Value", 
+                          -Class)
+
+ggplot(wine_long, aes(Class, Value)) +
+  geom_boxplot() +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme_bw()
+
+```
+
+A data scientist (and detective working the case) looking at this data would jump for joy! Look at how many obvious differences there are between wines from the three different vineyards. We should easily be able to build a well-performing classification model because the classes are so separable.
+
+#### 2.3 Training the models
+
+Let’s define our task and learner, and build a model as usual. This time, we supply `"classif.lda"` as the argument to `makeLearner()` to specify that we’re going to use LDA.
+
+```         
+NOTE: LDA and QDA have no hyperparameters to tune and are therefore said to have a closed-form solution. In other words, all the information that LDA and QDA need is in the data. Their performance is also unaffected by variables on different scales. They will give the same result whether the data is scaled or not.
+```
+
+Then, extract the model information using the `getLearnerModel()` function, and get DF values for each case using the `predict()` function. By printing `head(ldaPreds)`, we can see that the model has learned two DFs, `LD1` and `LD2`, and that the `predict()` function has indeed returned the values for these functions for each case in our `wineTib` dataset.
+
+```{r CREATE TASK AND LEARNER, AND TRAIN MODEL, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+wineTask <- makeClassifTask(data = wineTib, target = "Class")
+
+lda <- makeLearner("classif.lda")
+
+ldaModel <- train(lda, wineTask)
+
+ldaModelData <- getLearnerModel(ldaModel)
+
+ldaPreds <- predict(ldaModelData)$x
+
+head(ldaPreds)
+
+```
+
+To visualize how well these two learned DFs separate the bottles of wine from the three vineyards, let’s plot them against each other. We start by piping the `wineTib` dataset into a `mutate()` call where we create a new column for each of the DFs. We pipe this mutated tibble into a `ggplot()` call and set `LD1`, `LD2`, and `Class` as the x, y, and color aesthetics, respectively. Finally, we add a geom_point() layer to add dots, and a `stat_ellipse()` layer to draw 95% confidence ellipses around each class.
+
+```{r PLOT DISCRIMINANT FUNCTIONS, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+wineTib %>%
+  mutate(LD1 = ldaPreds[, 1], 
+         LD2 = ldaPreds[, 2]) %>%
+  ggplot(aes(LD1, LD2, col = Class)) +
+  geom_point() +
+  stat_ellipse() +
+  theme_bw()
+
+```
+
+LDA has reduced our 13 predictor variables into just two DFs that do an excellent job of separating the wines from each of the vineyards?
+
+Next, let’s use exactly the same procedure to build a QDA model.
+
+```{r MAKE QDA LEARNER AND TRAIN MODEL, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+qda <- makeLearner("classif.qda")
+
+qdaModel <- train(qda, wineTask)
+
+```
+
+Noe that it isn’t easy to extract the DFs from the implementation of QDA that `mlr` uses, to plot them as we did for LDA.
+
+Next, let’s cross-validate our LDA and QDA models together to estimate how they’ll perform on new data. Let’s also look at the confusion matrices.
+
+```{r CROSS-VALIDATING MODELS, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+kFold <- makeResampleDesc(method = "RepCV", folds = 10, reps = 50, 
+                          stratify = TRUE)
+
+ldaCV <- resample(learner = lda, 
+                  task = wineTask, 
+                  resampling = kFold,
+                  measures = list(mmce, acc))
+
+qdaCV <- resample(learner = qda, 
+                  task = wineTask, 
+                  resampling = kFold,
+                  measures = list(mmce, acc))
+ldaCV$aggr
+qdaCV$aggr
+
+calculateConfusionMatrix(ldaCV$pred, relative = TRUE)
+calculateConfusionMatrix(qdaCV$pred, relative = TRUE)
+
+```
+
+Our LDA model correctly classified 98.8% of wine bottles on average. There isn’t much room for improvement here, but our QDA model managed to correctly classify 99.2% of cases.
+
+Now, the chemical analysis of the poisoned wine is in. Let’s use our QDA model to predict which vineyard it came from.
+
+```{r USING THE MODELS TO MAKE PREDICTIONS, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+poisoned <- tibble(Alco = 13, Malic = 2, Ash = 2.2, Alk = 19, Mag = 100, 
+                   Phe = 2.3, Flav = 2.5, Non_flav = 0.35, Proan = 1.7,
+                   Col = 4, Hue = 1.1, OD = 3, Prol = 750)
+
+predict(ldaModel, newdata = poisoned)
+predict(qdaModel, newdata = poisoned)
+
+```
+
+### 3. Strengths and weaknesses of LDA and QDA
+
+While it often isn’t easy to tell which algorithms will perform well for a given task, here are some strengths and weaknesses that will help you decide whether LDA and QDA will perform well for you.
+
+The strengths of the LDA and QDA algorithms are as follows:
+
+-   They can reduce a high-dimensional feature space into a much more manageable number.
+
+-   They can be used for classification or as a preprocessing (dimension reduction) technique for other classification algorithms that may perform better on the dataset.
+
+-   QDA can learn curved decision boundaries between classes (this isn’t the case for LDA).
+
+The weaknesses of the LDA and QDA algorithms are these:
+
+-   They can only handle continuous predictors (although recoding a categorical variable as numeric may help in some cases).
+
+-   They assume the data is normally distributed across the predictors. If the data is not, performance will suffer.
+
+-   LDA can only learn linear decision boundaries between classes (this isn’t the case for QDA).
+
+-   LDA assumes equal covariances of the classes, and performance will suffer if this isn’t the case (this isn’t the case for QDA).
+
+-   QDA is more flexible than LDA and so can be more prone to overfitting.
+
+### Exercise
+
+#### Exercise 1
+
+Interpret the confusion matrices:
+
+-   Which model is better at identifying wines from vineyard 3?
+
+-   Does our LDA model misclassify more wines from vineyard 2 as being from vineyard 1 or vineyard 3?
+
+#### Exercise 2
+
+Extract the discriminant scores from our LDA model, and use only these as the predictors for a kNN model (including tuning k). Experiment with your own cross-validation strategy.
+
+### Solution
+
+```{r EXERCISE, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Exercise 1
+
+# Exercise 2
+# CREATE TASK ----
+
+# TUNE K ----
+
+# CROSS-VALIDATE MODEL-BUILDING PROCESS ----
+
+# TRAINING FINAL MODEL WITH TUNED K ----
+
+```
+
+End-of-File\
+2026-02-04

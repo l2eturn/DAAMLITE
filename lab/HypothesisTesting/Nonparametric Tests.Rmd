@@ -1,0 +1,424 @@
+---
+title: "Nonparametric Tests"
+author: "Pongsun B."
+date: "2026-01-14"
+output:
+  html_document: default
+  pdf_document: default
+header-includes:
+  - \pagenumbering{gobble}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Call required packages, ex. "readxl", "tidyverse"
+if(!require(readxl)){install.packages("readxl")}
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(rcompanion)){install.packages("rcompanion")}
+if(!require(DescTools)){install.packages("DescTools")}
+if(!require(Hmisc)){install.packages("Hmisc")}
+if(!require(corrplot)){install.packages("corrplot")}
+if(!require(formatR)){install.packages("formatR")}
+if(!require(FSA)){install.packages("FSA")}
+if(!require(BSDA)){install.packages("BSDA")}
+if(!require(nonpar)){install.packages("nonpar")}
+
+```
+
+## ==== Introduction to Non-parametric Tests ====
+
+The traditional nonparametric tests presented in this book are primarily rank-based tests. Instead of using the numeric values of the dependent variable, the dependent variable is converted into **relative ranks**.
+
+For example, imagine we have the heights of eight students in centimeters. สวัสดี
+
+```{r Introduction}
+Height = c(110, 132, 137, 139, 140, 142, 142, 145)
+names(Height) = letters[1:8]
+Height
+rank(Height)
+
+```
+
+`a` has the smallest height and so is ranked 1. `b` has the next smallest height and so is ranked 2. And so on. Note that `f` and `g` are tied for spots 6 and 7, and so share a rank of 6.5.
+
+Also note that the value of `a` is quite smaller than the others, but its rank is simply 1. [Information about the absolute height values is lost, and only the relative ranking is retained in the ranks]{.underline}. That is, if the value of `a` were changed to 100 or 5 or --10, its rank would remain 1 in this data set.
+
+The advantage of using these rank-based tests is that they don't make many assumptions about the distribution of the data. Instead, their conclusions are based on the relative ranks of values in the groups being tested.
+
+### **Advantages of nonparametric tests**
+
+-   Most of the traditional nonparametric tests presented here are relatively common, and your audience is relatively likely to be familiar with them.
+
+-   They are appropriate for **interval/ratio** or, often, **ordinal** dependent variables.
+
+-   Their nonparametric nature makes them appropriate for data that don't meet the assumptions of parametric analyses. These include data that are skewed, non-normal, contain outliers, or, possibly, are censored. (Censored data is data where there is an upper or lower limit to values. For example, if ages under 5 are reported as "under 5".)
+
+### **Disadvantages of nonparametric tests**
+
+-   These tests are typically named after their authors, with names like Mann--Whitney, Kruskal--Wallis, and Wilcoxon signed-rank. It may be difficult to remember these names, or to remember which test is used in which situation.
+
+-   Most of the traditional nonparametric tests presented here are limited by the types of experimental designs they can address. They are typically limited to a one-way comparison of independent groups (e.g. Kruskal--Wallis), or to unreplicated complete block design for paired samples (e.g. Friedman).
+
+-   There may be more flexible approaches that can cover more complex designs. The aligned ranks transformation is one nonparametric approach. Ordinal regression is appropriate when there is an ordinal dependent variable.
+
+### **Appropriate use of traditional nonparametric tests**
+
+-   **Using traditional nonparametric tests with ordinal data**
+
+Some authors caution against using traditional nonparametric tests with ordinal dependent variables since many of them were developed for use with continuous (interval/ratio) data. Some authors have further concerns about situations where are likely to be many ties in ranks, such as Likert data.
+
+Other authors argue that, since these tests rank-transform data before analysis and have adjustments for tied ranks, therefore they are appropriate for ordinal data.
+
+-   **Using traditional nonparametric tests with interval/ratio data**
+
+These nonparametric tests are commonly used for interval/ratio data when the data fail to meet the assumptions of parametric analysis. However, parametric statistics are often relatively robust to minor deviations in their assumptions. Therefore, some authors argue that it is often better to stick with parametric analyses for interval/ratio data if it's possible to make them work. Often, with a parametric approach, a *generalized* linear model would be appropriate where *general* linear models aren't appropriate.
+
+## ==== **Sign Test for One-sample Data** ====
+
+The one-sample sign test compares the number of observations greater than or less than the default value without accounting for the magnitude of the difference between each observation and the default value. The test is similar in purpose to the one-sample Wilcoxon signed-rank test, but looks specifically at the median value, and is not affected by the distribution of the data.
+
+**Appropriate data**
+
+-   One-sample data
+
+-   Data are ordinal, interval, or ratio.
+
+**Hypotheses**
+
+-   Null hypothesis:  The median of the population from which the sample was drawn is equal to the default value.
+
+-   Alternative hypothesis (two-sided): The median of the population from which the sample was drawn is not equal to the default value.
+
+**Interpretation**
+
+Reporting significant results as e.g. "Likert scores were significantly different from a default value of 3" is acceptable.
+
+### **One-sample sign test example**
+
+This example use the Maggie Simpson data from the *Descriptive Statistics for Likert Data*. The example answers the question, "Are Maggie's scores significantly different from a 'neutral' score of 3?"
+
+The test will be conducted with the `SIGN.test` function. These functions produce a *p*-value for the hypothesis, as well as the median and confidence interval of the median for the data.
+
+Note that the variable we want to count is *Likert.f*, which is a factor variable. Counts for *Likert.f* are cross tabulated over values of *Speaker*. The `prop.table` function translates a table into proportions. The `margin=1` option indicates that the proportions are calculated for each row.
+
+```{r One-sample sign test, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+LikertData1 <- read_xlsx("./Data/nonparametric_data.xlsx", sheet = "Sheet1")
+
+# Create a new variable which is the likert scores as an ordered factor
+LikertData1$Likert_f = factor(LikertData1$Likert, level = 1:5,ordered = TRUE)
+
+# Check the data frame
+summary(LikertData1)
+
+# Cross Tabulation
+XT <- xtabs( ~ Speaker + Likert_f, 
+           data = LikertData1)
+XT
+prop.table(XT, margin = 1)
+
+# Summarize data treating Likert scores as numeric
+library(FSA)
+Summarize(Likert ~ Speaker,
+          data = LikertData1, 
+          digits = 3)
+
+# Bar plot
+ggplot(LikertData1, aes(x = Likert_f))+
+  geom_bar()+
+  scale_x_discrete(drop = FALSE);
+
+# Sign test with the BSDA package
+# Note that md = 3 indicates the default value to compare to.
+# H1: Median > 3
+SIGN.test(LikertData1$Likert,
+          m = 3,
+          alternative = "greater",
+          conf.level = 0.95);
+
+# Sign test with the DescTools package
+# Note that mu = 3 indicates the default value to compare to.
+# H1: Median > 3
+
+
+# Conclusion
+
+
+```
+
+## ==== **Mood's Median Test for Two-sample Data** ====
+
+Mood's median test compares the medians of two or more groups. The test can be conducted with the with the `median_test`function in the `coin` package or with the `nonpar` package.
+
+**Appropriate data**
+
+-   One-way data with two or more groups.
+
+-   Dependent variable is ordinal, interval, or ratio.
+
+-   Independent variable is a factor with levels indicating groups.
+
+-   Observations between groups are independent. That is, not paired or repeated measures data.
+
+**Hypotheses**
+
+-   Null hypothesis:  The medians of the populations from which the groups were sampled are equal.
+
+-   Alternative hypothesis (two-sided): The medians of the populations from which the groups were sampled are not equal.
+
+**Interpretation**
+
+Significant results can be reported as "The median value of group A was significantly different from group B."
+
+### **Mood's median test example (2 population) (last 30 min)**
+
+This example re-visits the Pooh and Piglet data to answer the question, "Are Pooh's scores significantly different from those of Piglet?"
+
+This example uses the formula notation indicating that *Likert* is the dependent variable and *Speaker* is the independent variable. First the data are summarized and examined using bar plots for each group. The Mood's Median test is conducted with the `median_test` function in the `coin` package or the `mediantest` function in the `nonpar` package , which produces a *p*-value for the hypothesis.
+
+```{r Mood’s median test, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+LikertData2 <- read_xlsx("./Data/nonparametric_data.xlsx", sheet = "Sheet2")
+
+# Order levels of the factor, otherwise R will alphabetize them.
+LikertData2$Speaker = factor(LikertData2$Speaker, levels = unique(LikertData2$Speaker))
+
+# Create a new variable which is the Likert scores as an ordered factor
+LikertData2$Likert.f = factor(LikertData2$Likert,
+                       ordered = TRUE)
+
+# Cross Tabulation
+XT2 <- xtabs( ~ Speaker + Likert.f,
+       data = LikertData2)
+XT2 
+prop.table(XT2, margin = 1)
+
+# Summarize data treating Likert scores as numeric
+library(FSA)
+ Summarize(Likert ~ Speaker, 
+          data = LikertData2, 
+          digits = 3)
+
+# Histograms of each group
+ggplot(LikertData2, aes(x = Likert, fill = Speaker)) +
+  geom_histogram(stat = "count") + 
+  facet_grid(~ Speaker)
+
+#Density plot
+ggplot(LikertData2, aes(x = Likert, fill = Speaker)) +
+  geom_density() + 
+  facet_grid(~ Speaker);
+
+#Shapilo-Wilk test
+
+shapiro.test(LikertData2$Likert[1:10])
+shapiro.test(LikertData2$Likert[11:20])
+#Both less than 0.05, so we have enough evidence for reject Null Hypothesis, then LikertData2 is not normal Dist
+
+# Exact median test with "coin" package
+# H1: median_Piglet > median_Pooh
+library(coin)
+median_test(Likert ~ Speaker,
+           data = LikertData2,
+           alternative = "greater")
+# Use "nonpar" package
+library(nonpar)
+
+# Conclusion
+
+
+```
+
+## ==== **Sign Test for Two-sample Paired Data** ====
+
+The two-sample sign test assesses the number of observations in one group that are greater than paired observations in the other group [without accounting for the magnitude of the difference]{.underline}. The test is similar in purpose to the two-sample Wilcoxon signed-rank test but looks specifically at the median value of differences (if the values are numeric), and is not affected by the distribution of the data.
+
+The `SIGN.test` function in the `BSDA` package requires the data to be separated into two variables, each of which is ordered so that the first observation of each is paired, and so on. The `SignTest` function in the `DescTools` package is similar.
+
+The test is equivalent to the one-sample sign test on the differences of the pairs.
+
+**Appropriate data**
+
+-   Two-sample paired data. That is, one-way data with two groups only, where the observations are paired between groups.
+
+-   Dependent variable is interval or ratio. Note that because the first step in the process is the subtraction of the paired values, one from the other, the data must be at least ordinal in nature.
+
+-   Independent variable is a factor with two levels. That is, two groups.
+
+**Hypotheses**
+
+-   Null hypothesis: For numeric data, the median of the paired differences in the population from which the sample was drawn is equal to zero.
+
+-   Alternative hypothesis (two-sided): For numeric data, the median of the paired differences in the population from which the sample was drawn is not equal to zero.
+
+**Interpretation**
+
+Significant results can be reported as "There was a significant difference in values between group A and group B."
+
+### **Two-sample paired signed-rank test example**
+
+For this example, imagine we want to compare scores for Pooh between Time 1 and Time 2. Here, we've recorded the identity of the student raters, and Pooh's score for each rater. This allows us to focus on the changes for each rater between Time 1 and Time 2. This makes for a more powerful test than would the Mann--Whitney U test in cases like this where one rater might tend to rate high and another rater might tend to rate low, but there is an overall trend in how raters change their scores between Time 1 and Time 2.
+
+Note in this example we needed to record the identity of the student rater so that a rater's score from Time 1 can be paired with their score from Time 2. If we cannot pair data in this way---for example, if we did not record the identity of the raters---the data would have to be treated as unpaired, independent samples.
+
+Also note that the data is arranged in long form.  In this form, for this test, the data must be ordered so that the first observation where *Time* = 1 is paired to the first observation where *Time* = 2, and so on.
+
+### Bar plot of differences
+
+Paired data can also be visualized with a bar chart of differences. In the plot below, bars with a value greater than zero indicate cases for which values for Time 2 are greater than for Time 1.
+
+Note that for this to work correctly, the data must be ordered so that the first observation where *Time* = 1 is paired to the first observation where *Time* = 2, and so on.
+
+```{r Paired signed-rank test, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+LikertData3 <- read_xlsx("./Data/nonparametric_data.xlsx", sheet = "Sheet3")
+
+# Order data by Time and Student if not already ordered
+LikertData3 = LikertData3[order(LikertData3$Time, LikertData3$Student),]
+
+# Check the data frame
+str(LikertData3)
+summary(LikertData3)
+
+# Number of observations per group
+# It is helpful to check the data to be sure there is one observation per student per time.
+xtabs( ~ Student + Time, 
+       data = LikertData3)
+
+# Bar plot of differences
+# Bar plot of differences (โค้ดเดิมของคุณ)
+Time.1 = LikertData3$Likert[LikertData3$Time == 1]
+Time.2 = LikertData3$Likert[LikertData3$Time == 2]
+
+Difference = Time.2 - Time.1
+
+# ---------------------------------------------------------
+# เติมโค้ดด้านล่างนี้ลงไปครับ
+# ---------------------------------------------------------
+
+# H1: The median of the paired differences is not equal to 0
+# (สมมติฐานรอง: ค่ามัธยฐานของผลต่างคะแนนระหว่าง Time 1 กับ Time 2 ไม่เท่ากับศูนย์ แปลว่าคะแนนเปลี่ยนไป)
+
+# Two-sample sign test with BSDA package
+library(BSDA)
+# ใช้คำสั่ง SIGN.test() โดยโยนข้อมูลผลต่างเข้าไป เทียบกับค่า 0
+SIGN.test(Difference, md = 0)
+
+# Two-sample sign test with DescTools package
+library(DescTools)
+# ใช้คำสั่ง SignTest() โยนข้อมูลสองชุดเข้าไปให้มันลบกันเองได้เลย
+SignTest(x = Time.2, y = Time.1)
+
+# Conclusion
+# การเขียนสรุป (ให้คุณกดรันโค้ดด้านบนก่อน แล้วดูค่า p-value ใน Console):
+# 
+# กรณีที่ 1: ถ้า p-value < 0.05
+# "Reject the null hypothesis. There is a significant difference in Likert scores between Time 1 and Time 2."
+# (คะแนนมีความแตกต่างกันอย่างมีนัยสำคัญ)
+#
+# กรณีที่ 2: ถ้า p-value >= 0.05
+# "Fail to reject the null hypothesis. There is no significant difference in Likert scores between Time 1 and Time 2."
+# (คะแนนไม่แตกต่างกัน)
+
+
+```
+
+## ==== **Kruskal--Wallis Test** ====
+
+The Kruskal--Wallis test is a rank-based test that is similar to the Mann--Whitney U test, but can be applied to one-way data with more than two groups.
+
+Without further assumptions about the distribution of the data, [the Kruskal--Wallis test does not address hypotheses about the medians of the groups]{.underline}. Instead, the test addresses if it is likely that an observation in one group is greater than an observation in the other. This is sometimes stated as testing if one sample has stochastic dominance compared with the other.
+
+The test assumes that the observations are independent. That is, it is not appropriate for paired observations or repeated measures data.
+
+It is performed with the `kruskal.test` function in the native `stats` package.
+
+**Post-hoc tests**
+
+The outcome of the Kruskal--Wallis test tells you if there are differences among the groups, but doesn't tell you *which* groups are different from other groups. In order to determine which groups are different from others, post-hoc testing can be conducted. Probably the most common post-hoc test for the Kruskal--Wallis test is the **Dunn test** (1964).
+
+**Appropriate data**
+
+-   One-way data
+
+-   Dependent variable is ordinal, interval, or ratio
+
+-   Independent variable is a factor with two or more levels. That is, two or more groups
+
+-   Observations between groups are independent. That is, not paired or repeated measures data.
+
+-   In order to be a test of medians, the distributions of values for each group need to be of similar shape and spread. Otherwise, the test is typically a test of stochastic equality.
+
+**Hypotheses**
+
+-   Null hypothesis: The groups are sampled from populations with identical distributions. Typically, that the sampled populations exhibit stochastic equality.
+
+-   Alternative hypothesis (two-sided): The groups are sampled from populations with different distributions. Typically, that one sampled population exhibits stochastic dominance.
+
+**Interpretation**
+
+Significant results can be reported as "There was a significant difference in values among groups."
+
+Post-hoc analysis allows you to say "There was a significant difference in values between groups A and B.", and so on.
+
+There is a lot of conflicting information on the null and alternate hypotheses for Mann--Whitney and Kruskal--Wallis tests. Some authors will state that they test medians, usually adding an assumption that *the distributions of the groups need to be of the same shape and spread*. If this assumption holds, then, yes, these tests can be thought of as tests of location such as the median.
+
+Without this assumption, these tests compare the stochastic dominance of the groups. Once a rank transformation is applied, stochastic dominance is exhibited simply by the groups with higher values.
+
+### **Kruskal--Wallis test example**
+
+This example re-visits the Pooh, Piglet, and Tigger data to answer the question, "Are the scores significantly different among the three speakers?"
+
+The Kruskal--Wallis test is conducted with the `kruskal.test` function, which produces a *p*-value for the hypothesis. First the data are summarized and examined using bar plots for each group.
+
+#### **Post-hoc test: Dunn test for multiple comparisons of groups**
+
+If the Kruskal--Wallis test is significant, a post-hoc analysis can be performed to determine which groups differ from each other group. Probably the most popular post-hoc test for the Kruskal--Wallis test is the **Dunn test**.
+
+Because the post-hoc test will produce multiple *p*-values, adjustments to the *p*-values can be made to avoid inflating the possibility of making a type-I error. There are a variety of methods for controlling the familywise error rate or for controlling the false discovery rate.  See `?p.adjust` for details on these methods.
+
+```{r Kruskal–Wallis test, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+LikertData4 <- read_xlsx("./Data/nonparametric_data.xlsx", sheet = "Sheet4")
+
+# Order levels of the factor, otherwise R will alphabetize them.
+LikertData4$Speaker = factor(LikertData4$Speaker)
+
+# Create a new variable which is the likert scores as an ordered factor
+LikertData4$Likert.f = factor(LikertData4$Likert,
+                       ordered = TRUE)
+
+# Summarize data treating Likert scores as factors
+XT4 <- xtabs( ~ Speaker + Likert.f,
+       data = LikertData4)
+XT4
+prop.table(XT4, margin = 1)
+
+# Summarize data treating Likert scores as numeric
+library(FSA)
+Summarize(Likert ~ Speaker,
+          data = LikertData4, 
+          digits = 3)
+
+# Histograms of each group
+
+
+# Plot of medians and confidence intervals
+
+
+# Kruskal–Wallis test
+
+
+# Post-hoc test: Dunn test for multiple comparisons of groups
+# Order groups by median
+LikertData4$Speaker = factor(LikertData4$Speaker, 
+                      levels=c("Pooh", "Tigger", "Piglet"))
+levels(LikertData4$Speaker)
+
+# Dunn test
+library(FSA)
+
+
+# Conclusion
+
+
+```
+
+End-of-File

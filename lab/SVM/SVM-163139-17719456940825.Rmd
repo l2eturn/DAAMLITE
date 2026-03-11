@@ -1,0 +1,426 @@
+---
+title: "Support Vector mMchine (SVM)"
+author: "Pongsun B."
+date: "2026-02-25"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(mlr)){install.packages("mlr", dependencies = TRUE)}
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(kernlab)){install.packages("kernlab")}
+
+```
+
+### 1. What is the support vector machine (SVM) algorithm?
+
+#### 1.1 SVMs for linearly separable data
+
+Take a look at the data shown in **Figure 1**. The plots show the data you recorded on the mood of your boss, based on how hard you’re working and how much money you’re making the company. The SVM algorithm finds an optimal linear hyperplane that separates the classes. A hyperplane is a surface that has one less dimension than there are variables in the dataset. For a two-dimensional feature space, such as in the example in **Figure 1**, a hyperplane is simply a straight line. For a three-dimensional feature space, a hyperplane is a surface. It’s hard to picture hyperplanes in a four or more dimensional feature space, but the principle is the same: they are surfaces that cut through the feature space.
+
+![](https://drek4537l1klr.cloudfront.net/rhys/Figures/fig6-3_alt.jpg){alt=""}
+
+**Figure 1:** The SVM algorithm finds a hyperplane (solid line) that passes through the feature space. An optimal hyperplane is one that maximizes the margin around itself (dotted lines). The margin is a region around the hyperplane that touches the fewest cases. Support vectors are shown with double circles.
+
+For problems where the classes are fully, linearly separable, there may be many different hyperplanes that do just as good a job at separating the classes in the training data. To find an optimal hyperplane (which will, hopefully, generalize better to unseen data), the algorithm finds the hyperplane that maximizes the margin around itself. The margin is a distance around the hyperplane that touches the fewest training cases. The cases in the data that touch the margin are called support vectors because they support the position of the hyperplane (hence, the name of the algorithm).
+
+The support vectors are the most important cases in the training set because they define the boundary between the classes. Not only this, but the hyperplane that the algorithm learns is entirely dependent on the position of the support vectors and none of the other cases in the training set. Take a look at **Figure 2**. If we move the position of one of the support vectors, then we move the position of the hyperplane. If, however, we move a non-support vector case, there is no influence on the hyperplane at all.
+
+![](https://drek4537l1klr.cloudfront.net/rhys/Figures/fig6-4_alt.jpg){alt=""}
+
+**Figure 2:** The position of the hyperplane is entirely dependent on the position of support vectors. Moving a support vector moves the hyperplane from its original position (dotted line) to a new position (top two plots). Moving a non-support vector has no impact on the hyperplane (bottom two plots).
+
+SVMs are extremely popular right now. That’s mainly for three reasons:
+
+-   They are good at finding ways of separating non-linearly separable classes.
+
+-   They tend to perform well for a wide variety of tasks.
+
+-   We now have the computational power to apply them to larger, more complex datasets.
+
+This last point is important because it highlights a potential downside of SVMs: they tend to be more computationally expensive to train than many other classification algorithms. For this reason, if you have a very large dataset, and computational power is limited, it may be economical for you to try cheaper algorithms first and see how they perform.
+
+#### 1.2 What if the classes aren’t fully separable?
+
+In the illustrations I’ve shown you so far, the classes have been fully separable. This is so I could clearly show you how the positioning of the hyperplane is chosen to maximize the margin. But what about situations where the classes are not completely separable? How can the algorithm find a hyperplane when there is no margin that won’t have cases *inside* it?
+
+The original formulation of SVMs uses what is often referred to as a *hard margin*. If an SVM uses a hard margin, then no cases are allowed to fall within the margin. This means that, if the classes are not fully separable, the algorithm will fail. This is, of course, a massive problem, because it relegates *hard-margin* SVM to handling only “easy” classification problems where the training set can be clearly partitioned into its component classes. As a result, an extension to the SVM algorithm called *soft-margin* SVM is much more commonly used. In *soft-margin* SVM, the algorithm still learns a hyperplane that best separates the classes, but it allows cases to fall inside its margin. The soft-margin SVM algorithm still tries to find the hyperplane that best separates the classes, but it is penalized for having cases inside its margin. How severe the penalty is for having a case inside the margin is controlled by a hyperparameter that controls how “hard” or “soft” the margin is (we’ll discuss this hyperparameter and how it affects the position of the hyperplane later in the chapter). The harder the margin is, the fewer cases will be inside it; the hyperplane will depend on a smaller number of support vectors. The softer the margin is, the more cases will be inside it; the hyperplane will depend on a larger number of support vectors. This has consequences for the bias-variance trade-off: if our margin is too hard, we might overfit the noise near the decision boundary, whereas if our margin is too soft, we might underfit the data and learn a decision boundary that does a bad job of separating the classes.
+
+#### 1.3 SVMs for non-linearly separable data
+
+So far the SVM algorithm seems quite simple—and for linearly separable classes like in our boss-mood example, it is. But I mentioned that one of the strengths of the SVM algorithm is that it can learn decision boundaries between classes that are not linearly separable. I’ve told you that the algorithm learns linear hyperplanes, so this seems like a contradiction. Well, here’s what makes the SVM algorithm so powerful: it can add an extra dimension to your data to find a linear way to separate nonlinear data.
+
+Take a look at the example in **Figure 3**. The classes are not linearly separable using the two predictor variables. The SVM algorithm adds an extra dimension to the data, such that a linear hyperplane can separate the classes in this new, higher-dimensional space. We can visualize this as a sort of deformation or stretching of the feature space. The extra dimension is called a *kernel*.
+
+![](https://drek4537l1klr.cloudfront.net/rhys/Figures/fig6-5_alt.jpg){alt=""}
+
+**Figure 3:** The SVM algorithm adds an extra dimension to linearly separate the data. The classes in the original data are not linearly separable. The SVM algorithm adds an extra dimension that, in a two-dimensional feature space, can be illustrated as a “stretching” of the data into a third dimension. This additional dimension allows the data to be linearly separated. When this hyperplane is projected back onto the original two dimensions, it appears as a curved decision boundary.
+
+How does the algorithm find this new kernel? It uses a mathematical transformation of the data called a kernel function. There are many kernel functions to choose from, each of which applies a different transformation to the data and is suitable for finding linear decision boundaries for different situations. **Figure 4** shows examples of situations where some common kernel functions can separate non-linearly separable data:
+
+-   Linear kernel (equivalent to no kernel)
+
+-   Polynomial kernel
+
+-   Gaussian radial basis kernel
+
+-   Sigmoid kernel
+
+The type of kernel function for a given problem isn’t learned from the data—we have to specify it. Because of this, the choice of kernel function is a categorical hyperparameter (a hyperparameter that takes discrete, not continuous values). Therefore, the best approach for choosing the best-performing kernel is with hyperparameter tuning.
+
+![](https://drek4537l1klr.cloudfront.net/rhys/Figures/fig6-6_alt.jpg){alt=""}
+
+**Figure 4:** Examples of kernel functions. For each example, the solid line indicates the decision boundary (projected back onto the original feature space), and the dashed lines indicate the margin. With the exception of the linear kernel, imagine that the cases of one of the groups are raised off the page in a third dimension.
+
+#### 1.4 Hyperparameters of the SVM algorithm
+
+This is where SVMs become fun/difficult/painful, depending on your problem, computationalbudget, and sense of humor. We need to tune quite a lot of hyperparameterswhen building an SVM. This, coupled with the fact that training a single modelcan be moderately expensive, can make training an optimally performing SVM take quite a long time.
+
+So the SVM algorithm has quite a few hyperparameters to tune, but the most important ones to consider are as follows:
+
+-   The kernel hyperparameter (shown in **Figure 4**)
+
+-   The degree hyperparameter, which controls how “bendy” the decision boundary will be for the polynomial kernel (shown in **Figure 4**)
+
+-   The cost or C hyperparameter, which controls how “hard” or “soft” the margin is(shown in **Figure 5**)
+
+-   The gamma hyperparameter, which controls how much influence individualcases have on the position of the decision boundary (shown in **Figure 5**)
+
+The effects of the kernel function and degree hyperparameter are shown in **Figure 4**. Note the difference in the shape of the decision boundary between the second- and third-degree polynomials.
+
+```         
+NOTE: The higher the degree of the polynomial, the more bendy and complex a decision boundary can be learned, but this has the potential to overfit the training set.
+```
+
+The *cost* (also called C) hyperparameter in soft-margin SVMs assigns a cost or penalty to having cases inside the margin or, put another way, tells the algorithm how bad it is to have cases inside the margin. A low cost tells the algorithm that it’s acceptable to have more cases inside the margin and will result in wider margins that are less influenced by local differences near the class boundary. A high cost imposes a harsher penalty on having cases inside the boundary and will result in narrower margins that are more influenced by local differences near the class boundary. The effect of cost is illustrated for a linear kernel in the top part of **Figure 4**.
+
+```         
+NOTE: Cases inside the margin are also support vectors, as moving them would change the position of the hyperplane.
+```
+
+The *gamma* hyperparameter controls the influence that each case has on the position of the hyperplane and is used by all the kernel functions except the linear kernel. Think of each case in the training set jumping up and down shouting, “Me! Me! Classify me correctly!” The larger gamma is, the more attention-seeking each case is, and the more granular the decision boundary will be (potentially leading to overfitting). The smaller gamma is, the less attention-seeking each case will be, and the less granula the decision boundary will be (potentially leading to underfitting). The effect of gamma is illustrated for a Gaussian radial basis kernel in the bottom part of **Figure 5**.
+
+![](https://drek4537l1klr.cloudfront.net/rhys/Figures/fig6-7.jpg){alt=""}
+
+**Figure 5:** The impact of the cost and gamma hyperparameters. Larger values of the cost hyperparameter give greater penalization for having cases inside the margin. Larger values of the gamma hyperparameter mean individual cases have greater influence on the position of the decision boundary, leading to more complex decision boundaries.
+
+#### 1.5 What if we have more than two classes?
+
+So far, I’ve only shown you examples of two-class classification problems. This is because the SVM algorithm is inherently geared toward separating two classes. But can we use it for multiclass problems (where we’re trying to predict more than two classes)? Absolutely! When there are more than two classes, instead of creating a single SVM, we make multiple models and let them fight it out to predict the most likely class for new data. There are two ways of doing this:
+
+-   One-versus-all
+
+-   One-versus-one
+
+In the one-versus-all (also called *one-versus-rest*) approach, we create as many SVM models as there are classes. Each SVM model describes a hyperplane that best separates one class from *all the other classes*. Hence the name, one-versus-all. When we classify new, unseen cases, the models play a game of *winner takes all*. Put simply, the model that puts the new case on the “correct” side of its hyperplane (the side with the class it separates from all the others) wins. The case is then assigned to the class that the model was trying to separate from the others. This is illustrated in the plot on the left in **Figure 6**.
+
+![](https://drek4537l1klr.cloudfront.net/rhys/Figures/fig6-8.jpg){alt=""}
+
+**Figure 6:** One-versus-all and one-versus-one approaches to multiclass SVMs. In the one-versus-all approach, a hyperplane is learned per class, separating it from all the other cases. In the one-versus-one approach, a hyperplane is learned for every pair of classes, separating them while ignoring the data from the other classes.
+
+In the one-versus-one approach, we create an SVM model for every pair of classes. Each SVM model describes a hyperplane that best separates one class from *one other class*, ignoring data from the other classes. Hence, the name, one-versus-one. When we classify new, unseen cases, each model casts a vote. For example, if one model separates classes A and B, and the new data falls on the B side of the decision boundary, that model will vote for B. This continues for all the models, and the majority class vote wins. This is illustrated in the plot on the right in **Figure 6**.
+
+Which do we choose? Well in practice, there is usually little difference in the performance of the two methods. Despite training more models (for more than three classes), one-versus-one is sometimes less computationally expensive than one-versus-all.
+
+This is because, although we’re training more models, the training sets are smaller (because of the ignored cases). The implementation of the SVM algorithm called by `mlr` uses the one-versus-one approach.
+
+There is, however, a problem with these approaches. There will often be regions of the feature space in which none of the models gives a clear winning class. Can you see the triangular space between the hyperplanes on the left in **Figure 6**? If a new case appeared inside this triangle, none of the three models would clearly win outright. This is a sort of classification no-man’s land. Though not as obvious in **Figure 6**, this also occurs with the one-versus-one approach.
+
+If there is no outright winner when predicting a new case, a technique called **Platt scaling** is used (named after computer scientist John Platt). Platt scaling takes the distances of the cases from each hyperplane and converts them into probabilities using the logistic function. Using Platt scaling to make predictions proceeds like this:
+
+1.  For every hyperplane (whether we use one-versus-all or one-versus-one):
+
+    -   Measure the distance of each case from the hyperplane.
+
+    -   Use the logistic function to convert these distances into probabilities.
+
+2.  Classify new data as belonging to the class of the hyperplane that has the highest
+
+    probability.
+
+If this seems confusing, take a look at **Figure 7**. We’re using the one-versus-all approach in the figure, and we have generated three separate hyperplanes (one to separate each class from the rest). The dashed arrows in the figure indicate distance in either direction, away from the hyperplanes. Platt scaling converts these distances into probabilities using the logistic function (the class each hyperplane separates from the rest has positive distance).
+
+When we classify new, unseen data, the distance of the new data is converted into a probability using each of the three S-shaped curves, and the case is classified as the one that gives the highest probability. Handily, all of this is taken care of for us in the implementation of SVM called by `mlr`. If we supply a three-class classification task, we will get a one-versus-one SVM model with Platt scaling without having to change our code.
+
+![](https://drek4537l1klr.cloudfront.net/rhys/Figures/fig6-9_alt.jpg){alt=""}
+
+**Figure 7:** How Platt scaling is used to get probabilities for each hyperplane. This example shows a one-versus-all approach (it also applies to one-versus-one). For each hyperplane, the distance of each case from the hyperplane is recorded (indicated by double-headed arrows). These distances are converted into probabilities using the logistic function.
+
+### 2. Building your first SVM model
+
+Imagine that you’re sick and tired of receiving so many spam emails (maybe you don’t need to imagine!). It’s difficult for you to be productive because you get so many emails requesting your bank details for a mysterious Ugandan inheritance, and trying to sell you Viagra. You decide to perform a feature extraction on the emails you receive over a few months, which you manually class as spam or not spam. These features include things like the number of exclamation marks and the frequency of certain words. With this data, you want to make an SVM that you can use as a spam filter, which will classify new emails as spam or not spam.
+
+#### 2.1 Loading and exploring the spam dataset
+
+Now let’s load the data, which is built into the `kernlab` package, convert it into a tibble with `as_tibble()`, and explore it. We have a tibble containing 4,601 emails and 58 variables extracted from emails. Our goal is to train a model that can use the information in these variables to predict whether a new email is spam or not.
+
+```         
+NOTE: Except for the factor type, which denotes whether an email is spam, all of the variables are continuous, because the SVM algorithm cannot handle categorical predictors.
+```
+
+```{r Loading and exploring the spam dataset, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+data(spam, package = "kernlab")
+
+spamTib <- as_tibble(spam)
+spamTib
+
+??kernlab
+```
+
+This dataset has a lot of features! I’m not going to discuss the meaning of each one, but you can see a description of what they mean by running `?kernlab::spam`.
+
+#### 2.2 Tuning our hyperparameters
+
+Let’s define our task and learner. This time, we supply `"classif.svm"` as the argument to `makeLearner()` to specify that we’re going to use SVM.
+
+Before we train our model, we need to tune our hyperparameters. To find out which hyperparameters are available for tuning for an algorithm, we simply pass the name of the algorithm in quotes to `getParamSet()`. The most important columns of the hyperparameters for the SVM algorithm are:
+
+-   The row name is the name of the hyperparameter.
+
+-   `Type` is whether the hyperparameter takes numeric, integer, discrete, or logical values.
+
+-   `Def` is the default value (the value that will be used if you don’t tune the hyperparameter).
+
+-   `Constr` defines the constraints for the hyperparameter: either a set of specific values or a range of acceptable values.
+
+-   `Req` defines whether the hyperparameter is required by the learner.
+
+-   `Tunable` is logical and defines whether that hyperparameter can be tuned (some algorithms have options that cannot be tuned but can be set by the user).
+
+```{r Creating the task and learner, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+spamTask <- makeClassifTask(data = spamTib, target = "type")
+
+svm <- makeLearner("classif.svm")
+
+getParamSet("classif.svm")
+
+getParamSet("classif.svm")$pars$cost
+```
+
+The SVM algorithm is sensitive to variables being on different scales, so it’s usually a good idea to scale the predictors first. Notice the scale hyperparameter: it tells us that the algorithm will scale the data for us by default.
+
+To extract information about a particular hyperparameter, you need to call `getParamSet("classif.svm")$pars$[HYPERPAR]` (where `[HYPERPAR]` is replaced by the hyperparameter you’re interested in). To extract the possible values for that hyperparameter, you append `$values` to the call. For example, the following extracts the possible `kernel` functions:
+
+```         
+getParamSet("classif.svm")$pars$kernel$values
+```
+
+These are the most important hyperparameters for us to tune:
+
+-   *Kernel*
+
+-   *Cost*
+
+-   *Degree*
+
+-   *Gamma*
+
+```         
+TIP Notice that I omit the linear kernel. This is because the linear kernel is the same as the polynomial kernel with degree = 1, so we’ll just make sure we include 1 as a possible value for the degree hyperparameter. Including the linear kernel and the first-degree polynomial kernel is simply a waste of computing time.
+```
+
+Next, we use the `makeParamSet()` function to define the hyperparameter space we wish to tune over. In the `makeParamSet()` function, we supply the information needed to define each hyperparameter we wish to tune, separated by commas. Let’s break this down line by line:
+
+-   The *kernel* hyperparameter takes discrete values (the name of the kernel function), so we use the `makeDiscreteParam()` function to define its values as the vector of kernels we created.
+
+-   The *degree* hyperparameter takes integer values (whole numbers), so we use the `makeIntegerParam()` function and define the lower and upper values we wish to tune over.
+
+-   The *cost* and *gamma* hyperparameters take numeric values (any number between zero and infinity), so we use the `makeNumericParam()` function to define the lower and upper values we wish to tune over.
+
+For each of these functions, the first argument is the name of the hyperparameter given by `getParamSet("classif.svm")`, in quotes.
+
+```{r Defining the hyperparameter space for tuning, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+kernels <- c("polynomial", "radial", "sigmoid")
+
+svmParamSpace <- makeParamSet(
+  makeDiscreteParam("kernel", values = kernels),
+  makeIntegerParam("degree", lower = 1, upper = 3),
+  makeNumericParam("cost", lower = 0.1, upper = 10),
+  makeNumericParam("gamma", lower = 0.1, 10))
+
+```
+
+When we tuned k for the kNN algorithm, we used the *grid search* procedure during tuning to try every value of *k* that we defined. This is what the grid search method does: it tries [every combination of the hyperparameter space]{.underline} you define and finds the best-performing combination.
+
+Grid search is great because, provided you specify a sensible hyperparameter space to search over, it will always find the best-performing hyperparameters. But look at the hyperparameter space we defined for our SVM. Let’s say we wanted to try values for the *cost* and *gamma* hyperparameters from 0.1 to 10, in steps of 0.1 (that’s 100 values of each). We’re trying three kernel functions and three values of the degree hyperparameter. To perform a grid search over this parameter space would require training a model 90,000 times! In such a situation, if you have the time, patience, and computational budget for such a grid search, then good for you. I, for one, have better things I could be doing with my computer!
+
+Instead, we can employ a technique called *random search*. Rather than trying every possible combination of parameters, random search proceeds as follows:
+
+1.  Randomly select a combination of hyperparameter values.
+
+2.  Use cross-validation to train and evaluate a model using those hyperparameter values.
+
+3.  Record the performance metric of the model (usually mean misclassification error for classification tasks).
+
+4.  Repeat (iterate) steps 1 to 3 as many times as your computational budget allows.
+
+5.  Select the combination of hyperparameter values that gave you the bestperforming model.
+
+Unlike grid search, random search isn’t guaranteed to find the best set of hyperparameter values. However, with enough iterations, it can usually find a good combination that performs well. By using random search, we can run 500 combinations of hyperparameter values, instead of all 90,000 combinations.
+
+Let’s define our random search using the `makeTuneControlRandom()` function. We use the `maxit` argument to tell the function how many iterations of the random search procedure we want to use. You should try to set this as high as your computational budget allows, but in this example we’ll stick to 20 to prevent the example from taking too long. Next, we describe our cross-validation procedure. Remember that the k-fold cross-validation is preferable, unless the process is computationally expensive. Well, this is computationally expensive, so we’re compromising by using holdout cross-validation instead.
+
+```{r Defining the random search, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+randSearch <- makeTuneControlRandom(maxit = 20)
+randSearch
+
+cvForTuning <- makeResampleDesc("Holdout", split = 2/3)
+
+```
+
+There’s something else we can do to speed up this process. R, as a language, doesn’t make that much use of multithreading (using multiple CPUs simultaneously to accomplish a task). However, one of the benefits of the mlr package is that it allows multithreading to be used with its functions. This helps you use multiple cores/CPUs on your computer to accomplish tasks such as hyperparameter tuning and cross-validation much more quickly.
+
+```         
+TIP If you don’t know how many cores your computer has, you can find out in R by running parallel::detectCores().
+```
+
+To run an `mlr` process in parallel, we place its code between the `parallelStartSocket()` and `parallelStop()` functions from the `parallelMap` package. To start our hyperparameter tuning process, we call the `tuneParams()` function and supply the following as arguments:
+
+-   First argument = name of the learner
+
+-   `task` = name of our task
+
+-   `resampling` = cross-validation procedure
+
+-   `par.set` = hyperparameter space
+
+-   `control` = search procedure (random search)
+
+Notice that the downside of running cross-validation processes in parallel is that we no longer get a running update of how far we’ve got.
+
+```{r Performing hyperparameter tuning, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+library(parallelMap)
+library(parallel)
+
+parallelStartSocket(cpus = detectCores())
+
+tunedSVMPars <- tuneParams("classif.svm", task = spamTask,
+                     resampling = cvForTuning,
+                     par.set = svmParamSpace,
+                     control = randSearch)
+
+parallelStop()
+
+tunedSVMPars
+
+```
+
+```         
+TIP The degree hyperparameter only applies to the polynomial kernel function, and the gamma hyperparameter doesn’t apply to the linear kernel. Does this create errors when the random search selects combinations that don’t make sense? Nope. If the random search selects the sigmoid kernel, for example, it simply ignores the value of the degree hyperparameter.
+```
+
+You can print the best-performing hyperparameter values and the performance of the model built with them by calling `tunedSvm`, or extract just the named values (so you can train a new model using them) by calling `tunedSvm$x`. Looking at the following listing, we can see that the first-degree polynomial kernel function (equivalent to the linear kernel function) gave the model that performs the best, with a *cost* of 5.8 and *gamma* of 1.56.
+
+Your values are probably different than mine. This is the nature of the random search: it may find different winning combinations of hyperparameter values each time it’s run. To reduce this variance, we should commit to increasing the number of iterations the search makes.
+
+#### 2.3 Training the model with the tuned hyperparameters
+
+Now that we’ve tuned our hyperparameters, let’s build our model using the best performing combination. We use the `setHyperPars()` function to combine a learner with a set of predefined hyperparameter values. The first argument is the learner we want to use, and the `par.vals` argument is the object containing our tuned hyperparameter values. We then train a model using our `tunedSVM` learner with the `train()` function.
+
+```{r  Training the model with tuned hyperparameters, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+tunedSVM <- setHyperPars(makeLearner("classif.svm"), #svm
+                         par.vals = tunedSVMPars$x)
+
+tunedSVMModel <- train(tunedSVM, spamTask)
+
+```
+
+Because we already defined our learner, we could simply have run `setHyperPars(svm, par.vals = tunedSvmPars$x)` to achieve the same result.
+
+### 3. Cross-validating our SVM model
+
+We’ve built a model using tuned hyperparameters. In this section, we’ll cross-validate the model to estimate how it will perform on new, unseen data. It’s important to cross-validate the entire model-building process. This means any data-dependent steps in our model-building process (such as hyperparameter tuning) need to be included in our cross-validation. If we don’t include them, our cross-validation is likely to give an overoptimistic estimate (a biased estimate) of how well the model will perform.
+
+```         
+TIP What counts as a data-independent step in model building? Things like removing nonsense variables by hand, changing variable names and types, and replacing a missing value code with NA. These steps are data-independent because they would be the same regardless of the values in the data.
+```
+
+To include hyperparameter tuning in our cross-validation, we need to use a *wrapper function* that wraps together our learner and hyperparameter tuning process.
+
+Because `mlr` will use nested cross-validation (where hyperparameter tuning is performed in the inner loop, and the winning combination of values is passed to the outer loop), we first define our outer cross-validation strategy using the `makeResamplDesc()` function. In this example, I’ve chosen 3-fold cross-validation for the outer loop. For the inner loop, we’ll use the `cvForTuning` resampling description (holdout cross-validation with a 2/3 split).
+
+Next, we make our wrapped learner using the `makeTuneWrapper()` function. The arguments are as follows:
+
+-   First argument = name of the learner
+
+-   `resampling` = inner loop cross-validation strategy
+
+-   `par.set` = hyperparameter space
+
+-   `control` = search procedure
+
+As the cross-validation will take a while, it’s prudent to start parallelization with the `parallelStartSocket()` function. Now, to run our nested cross-validation, we call the `resample()` function, where the first argument is our wrapped learner, the second argument is our task, and the third argument is our outer cross-validation strategy.
+
+```{r Cross-validating the model-building process, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+outer <- makeResampleDesc("CV", iters = 3)
+
+svmWrapper <- makeTuneWrapper("classif.svm", 
+                              resampling = cvForTuning,
+                              par.set = svmParamSpace,
+                              control = randSearch)
+
+#tunedSVMPars <- tuneParams("classif.svm", task = spamTask,
+ #                    resampling = cvForTuning,
+  #                   par.set = svmParamSpace,
+   #                  control = randSearch)
+
+parallelStartSocket(cpus = detectCores())
+
+cvWithTuning <- resample(svmWrapper, spamTask, resampling = outer)
+
+parallelStop()
+
+cvWithTuning
+
+```
+
+We’re correctly classifying 1 – 0.099 = 0.901 = 90.1% of emails as spam or not spam. Not bad for a first attempt!
+
+### 4. Strengths and weaknesses of the SVM algorithm
+
+While it often isn’t easy to tell which algorithms will perform well for a given task, here are some strengths and weaknesses that will help you decide whether the SVM algorithm will perform well for your case.
+
+The strengths of the SVM algorithm are as follows:
+
+-   It’s very good at learning complex nonlinear decision boundaries
+
+-   It performs very well on a wide variety of tasks.
+
+-   It makes no assumptions about the distribution of the predictor variables.
+
+The weaknesses of the SVM algorithm are these:
+
+-   It is one of the most computationally expensive algorithms to train.
+
+-   It has multiple hyperparameters that need to be tuned simultaneously.
+
+-   It can only handle continuous predictor variables (although recoding a categorical variable as numeric *may* help in some cases).
+
+### Exercise
+
+#### Exercise 1
+
+Perform another random search for the best SVM hyperparameters using nested cross-validation. This time, limit your search to the linear kernel (so no need to tune *degree* or *gamma*), search over the range 0.1 and 100 for the cost hyperparameter, and increase the number of iterations to 100.
+
+### Solution
+
+```{r Exercise 1, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+
+# Warning: This took nearly 12 minutes to complete on my machine!!
+
+
+```
+
+End-of-file
+
+2026-02-25

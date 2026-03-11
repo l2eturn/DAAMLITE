@@ -1,0 +1,157 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+## Part 4: HYPERPARAMETER TUNING
+
+4.1 ทำไมต้อง Tune?
+
+```{r}
+k = 1 (Overfit):
+- Memorize training data
+- Poor on new data
+- High variance
+
+k = "best" (Balanced):
+- Good on training data
+- Good on new data
+- Balanced bias-variance
+
+k = too large (Underfit):
+- Too simple
+- Poor on both
+- High bias
+```
+
+4.2 Cross-Validation (CV)
+
+```{r}
+❌ ปัญหา: ถ้า split train/test แบบ random ทำได้แค่ครั้งเดียว
+         → ผลอาจขึ้นอยู่กับ random split ที่เฉพาะนั้น
+
+✅ วิธี CV: แบ่ง data เป็น k folds
+          → ทำนาย k ครั้ง
+          → เฉลี่ยผล
+          → ได้ผลที่เสถียรกว่า
+
+```
+
+k-fold CV (k=5)
+
+```{r}
+Original Data:
+┌────┬────┬────┬────┬────┐
+│ F1 │ F2 │ F3 │ F4 │ F5 │
+└────┴────┴────┴────┴────┘
+
+Fold 1: Test on F1, Train on F2-F5
+┌──────────────────────────┬────┐
+│ TRAIN: F2 F3 F4 F5       │ F1 │ TEST
+└──────────────────────────┴────┘
+
+Fold 2: Test on F2, Train on F1,F3-F5
+┌──┬──────────────────────────┐
+│ F1 │ TRAIN: F3 F4 F5       │ F2 │ TEST
+└──┴──────────────────────────┘
+
+... (Fold 3, 4, 5)
+
+Final: Average ของ 5 iterations
+```
+
+## 4.3 Code: Cross-Validation
+
+```{r}
+library(caret)
+
+# ✅ Define CV method: 5-fold CV
+ctrl <- trainControl(
+  method = "cv",           # Cross-validation
+  number = 5,              # 5 folds
+  savePredictions = TRUE,  # Save predictions
+  classProbs = TRUE        # Save probabilities
+)
+
+# ✅ Tune k using caret::train()
+# (แบบ high-level, easier than mlr)
+
+knn_tuned <- train(
+  class ~ glucose + insulin + sspg,  # Formula: target ~ features
+  data = train_data,                 # Training data
+  method = "knn",                    # Algorithm
+  tuneGrid = expand.grid(k = seq(1, 21, 2)),  # k to try
+  trControl = ctrl,                  # CV settings
+  preProcess = c("center", "scale")  # Scale during CV (important!)
+)
+
+# ✅ View results
+knn_tuned$results
+# k  Accuracy Kappa AccuracySD KappaSD
+# 1   0.920    0.88  0.045     0.053
+# 3   0.928    0.89  0.038     0.042
+# 5   0.935    0.90  0.035     0.039  ✅ Best!
+# 7   0.925    0.88  0.040     0.045
+# ...
+
+# ✅ Best k
+knn_tuned$bestTune
+# k
+# 5
+
+plot(knn_tuned)  # Visualize
+```
+
+## 4.4 Code: mlr Package (Advanced)
+
+```{r}
+library(mlr)
+
+# ✅ Create task
+task <- makeClassifTask(
+  data = train_data,
+  target = "class",
+  positive = "Normal"  # Optional: for binary classification
+)
+
+# ✅ Create learner (kNN)
+learner <- makeLearner("classif.knn")
+
+# ✅ Define parameter search space
+ps <- makeParamSet(
+  makeIntegerParam("k", lower = 1, upper = 21)
+)
+
+# ✅ Define search method (grid search)
+ctrl_search <- makeTuneControlGrid()
+
+# ✅ Define resampling (5-fold CV)
+resampling <- makeResampleDesc("CV", iters = 5)
+
+# ✅ Tune
+tune_result <- tuneParams(
+  learner = learner,
+  task = task,
+  resampling = resampling,
+  par.set = ps,
+  control = ctrl_search,
+  measures = list(mmce())  # Misclassification error
+)
+
+# ✅ Results
+tune_result
+
+# ✅ Train final model with best k
+best_learner <- setHyperPars(
+  learner,
+  par.vals = tune_result$x
+)
+final_model <- train(best_learner, task)
+
+# ✅ Predict on test set
+test_task <- makeClassifTask(
+  data = test_data,
+  target = "class"
+)
+predictions <- predict(final_model, test_task)
+```

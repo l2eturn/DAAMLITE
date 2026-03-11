@@ -1,0 +1,266 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+# 💻 Part 3: CODE - เขียน kNN Step by Step
+
+## 3.1 Setup & Load Data
+
+```{r}
+# ✅ Load packages
+library(tidyverse)
+library(mclust)      # มี diabetes dataset
+library(mlr)         # Tools สำหรับ ML
+library(caret)       # Alternative ML package
+
+# ✅ Load diabetes data
+data("diabetes", package = "mclust")
+diabetes <- as_tibble(diabetes)
+
+# ✅ Explore
+str(diabetes)
+head(diabetes)
+summary(diabetes)
+
+# Output:
+# A tibble: 145 x 4
+#   glucose insulin  sspg class
+#     <dbl>   <dbl> <dbl> <fct>
+# 1      89       86   325 Normal
+# 2      80       90   290 Normal
+# ...
+```
+
+## 3.2 Exploratory Data Analysis (EDA)
+
+```{r}
+# ✅ Check classes
+table(diabetes$class)
+# Normal  Chemical  Overt
+#    76       36      33
+
+# ✅ Summary by class
+diabetes %>%
+  group_by(class) %>%
+  summarise(
+    mean_glucose = mean(glucose),
+    mean_insulin = mean(insulin),
+    mean_sspg = mean(sspg),
+    n = n()
+  )
+
+# ✅ Visualize
+p1 <- diabetes %>% 
+  ggplot(aes(x = glucose, y = insulin, color = class)) +
+  geom_point(size = 3) +
+  theme_bw()
+
+p2 <- diabetes %>%
+  ggplot(aes(x = glucose, y = sspg, color = class)) +
+  geom_point(size = 3) +
+  theme_bw()
+
+p3 <- diabetes %>%
+  ggplot(aes(x = sspg, y = insulin, color = class)) +
+  geom_point(size = 3) +
+  theme_bw()
+
+# ✅ Check correlation
+cor(diabetes %>% select(glucose, insulin, sspg))
+```
+
+## 3.3 Data Preprocessing
+
+```{r}
+# ✅ Step 1: Check for missing values
+sum(is.na(diabetes))  # Should be 0
+
+# ✅ Step 2: Normalize/Scale the data
+# ⚠️  ทำไมต้อง scale?
+#    kNN ใช้ distance metric → glucose 100 >> insulin 50
+#    ถ้าไม่ scale → glucose มีอิทธิพลมากกว่าใจ
+#    
+#    scale() ทำให้: mean = 0, sd = 1
+
+# Method 1: ใช้ scale()
+diabetes_scaled <- diabetes %>%
+  mutate(
+    across(glucose:sspg, scale)  # Scale เฉพาะ 3 columns
+  )
+
+# Method 2: ใช้ preProcess จาก caret
+library(caret)
+preproc <- preProcess(
+  diabetes[, 1:3],
+  method = c("center", "scale")  # center = subtract mean, scale = divide by sd
+)
+diabetes_scaled_2 <- predict(preproc, diabetes)
+
+# ✅ Verify
+summary(diabetes_scaled)  # Should be ~0
+sd(diabetes_scaled$glucose)  # Should be 1
+```
+
+## 3.4 Split Data: Train vs Test
+
+```{r}
+library(caret)
+
+# ✅ Method 1: Simple 80-20 split
+set.seed(123)  # For reproducibility
+train_index <- createDataPartition(
+  diabetes$class,           # Stratified by class
+  p = 0.8,                  # 80% train
+  list = FALSE,
+  times = 1
+)
+
+train_data <- diabetes_scaled[train_index, ]
+test_data <- diabetes_scaled[-train_index, ]
+
+cat("Train size:", nrow(train_data), "\n")
+cat("Test size:", nrow(test_data), "\n")
+
+# ✅ Method 2: Using mlr
+library(mlr)
+split <- makeResampleDesc(
+  method = "Holdout",
+  split = 0.8,
+  stratify = TRUE
+)
+```
+
+## 3.5 Train kNN Model (Basic)
+
+```{r}
+library(class)
+library(tidyverse)
+
+data("diabetes", package = "mclust")
+diabetes <- as_tibble(diabetes)
+
+# Scale
+diabetes_scaled <- diabetes %>%
+  mutate(across(glucose:sspg, scale))
+
+# Split
+set.seed(42)
+idx <- sample(1:nrow(diabetes_scaled), 0.8 * nrow(diabetes_scaled))
+train_data <- diabetes_scaled[idx, ]
+test_data <- diabetes_scaled[-idx, ]
+
+# ✅ KEY: Convert to matrix & factor
+# KEY: Convert to matrix & factor (Corrected)
+# Drop the 'class' column for the X matrices
+X_train <- as.matrix(train_data %>% select(-class)) 
+y_train <- as.factor(train_data$class)
+
+X_test <- as.matrix(test_data %>% select(-class))
+y_test <- as.factor(test_data$class)
+
+# Run kNN
+knn_model <- knn(train = X_train, test = X_test, cl = y_train, k = 5)
+
+# Run kNN
+knn_model <- knn(train = X_train, test = X_test, cl = y_train, k = 5)
+
+# Check
+head(knn_model, 10)
+confusionMatrix(knn_model, y_test)
+```
+
+## Evaluate: ดูความถูกต้อง
+
+```{r}
+# ✅ Step 1: Confusion Matrix
+confusion <- table(Predicted = knn_model, Actual = y_test)
+confusion
+
+# Output:
+#           Actual
+# Predicted  Normal Chemical Overt
+#   Normal      15       2      0
+#   Chemical     1       5      1
+#   Overt        0       1      8
+
+# ✅ Step 2: Calculate Accuracy
+accuracy <- sum(diag(confusion)) / sum(confusion)
+cat("Accuracy:", accuracy, "\n")  # e.g., 0.913
+
+# ✅ Step 3: More detailed metrics
+library(caret)
+confusionMatrix(knn_model, y_test)
+
+# Output:
+# Confusion Matrix and Statistics
+#           Reference
+# Prediction Normal Chemical Overt
+#    Normal     15       2      0
+#    Chemical    1       5      1
+#    Overt       0       1      8
+#
+# Overall Statistics
+#                Accuracy : 0.913
+#                  95% CI : (0.787, 0.975)
+#     No Information Rate : 0.522
+#     P-Value [Acc > NIR] : 2.22e-08
+#
+# Sensitivity: 0.938  # ถูกต้องสำหรับ Normal
+# Specificity: 0.875  # ถูกต้องสำหรับ non-Normal
+```
+
+## 3.7 Try Different k Values
+
+```{r}
+# ✅ ลองค่า k หลายๆ ตัว
+k_values <- seq(1, 15, by = 2)  # k = 1, 3, 5, 7, ..., 15
+accuracies <- numeric(length(k_values))
+
+for (i in seq_along(k_values)) {
+  knn_pred <- knn(
+    train = X_train,
+    test = X_test,
+    cl = y_train,
+    k = k_values[i]
+  )
+  accuracies[i] <- sum(knn_pred == y_test) / length(y_test)
+}
+
+# ✅ Plot results
+results <- data.frame(
+  k = k_values,
+  accuracy = accuracies
+)
+
+ggplot(results, aes(x = k, y = accuracy)) +
+  geom_point(size = 3, color = "blue") +
+  geom_line(color = "blue", linetype = "dashed") +
+  geom_vline(xintercept = k_values[which.max(accuracies)],
+             color = "red", linetype = "dotted") +
+  labs(title = "kNN Accuracy vs k",
+       x = "k (Number of Neighbors)",
+       y = "Accuracy") +
+  theme_bw() +
+  ylim(0.8, 1)
+
+# ✅ Best k
+best_k <- k_values[which.max(accuracies)]
+cat("Best k:", best_k, "with accuracy:", max(accuracies), "\n")
+```
+
+## Train Final Model with Best k
+
+```{r}
+# ✅ Train กับ best k
+final_model <- knn(
+  train = X_train,
+  test = X_test,
+  cl = y_train,
+  k = best_k
+)
+
+# ✅ Final accuracy
+final_accuracy <- sum(final_model == y_test) / length(y_test)
+cat("Final Accuracy:", final_accuracy, "\n")
+```

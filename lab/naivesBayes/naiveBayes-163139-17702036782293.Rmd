@@ -1,0 +1,272 @@
+---
+title: "Naive Bayes"
+author: "Pongsun B."
+date: "2026-02-04"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(mlr)){install.packages("mlr", dependencies = TRUE)}
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(mlbench)){install.packages("mlbench")}
+
+```
+
+### 1. What is the naive Bayes algorithm?
+
+Imagine that 0.2% of the population have unicorn disease (symptoms include obsession with glitter and compulsive rainbow drawing). The test for unicorn disease has a true positive rate of 90% (if you have the disease, the test will detect it 90% of the time). When tested, 5% of the whole population get a positive result from the test. Based on this information, if you get a positive result from the test, what is the probability you have unicorn disease?
+
+Many people’s instinct is to say 90%, but this doesn’t account for how prevalent the disease is and the proportion of tests that are positive (which also includes false positives). So how do we estimate the probability of having the disease, given a positive test result? Well, we use **Bayes’ rule**.
+
+![](images/clipboard-4096423099.png)
+
+Where
+
+-   *p*(*k*\|*x*) is the probability of having the disease (*k*) given a positive test result (*x*). This is called the *posterior probability*.
+
+-   *p*(*x*\|*k*) is the probability of getting a positive test result if you *do* have the disease. This is called the *likelihood*.
+
+-   *p*(*k*) is the probability of having the disease regardless of any test. This is the proportion of people in the population with the disease and is called the *prior probability*.
+
+-   *p*(*x*) is the probability of getting a positive test result and includes the true positives and false positives. This is called the *evidence*.
+
+We can rewrite this in plain English:
+
+![](https://drek4537l1klr.cloudfront.net/rhys/Figures/pg137-2.jpg){alt=""}
+
+So our likelihood (the probability of getting a positive test result if we do have unicorn disease) is 90%, or 0.9 expressed as a decimal. Our prior probability (the proportion of people with unicorn disease) is 0.2%, or 0.002 as a decimal. Finally, our evidence (the probability of getting a positive test result) is 5%, or 0.05 as a decimal. You can see all these values illustrated in **Figure 1**.
+
+![](images/clipboard-2415602478.png)
+
+**Figure 1:** Using Bayes’ rule to calculate the posterior probability of having unicorn disease, given a positive test result. The priors are the proportion of people with or without the disease. The likelihoods are the probabilities of getting positive or negative test results for each disease status. The evidence is the probability of getting a positive test result (true positives plus the false positives).
+
+Now we simply substitute in these values into Bayes’ rule.
+
+![](https://drek4537l1klr.cloudfront.net/rhys/Figures/pg137-3.jpg){alt=""}
+
+Phew! After taking into account the prevalence of the disease and the proportion of tests that are positive (including false positives), a positive test means we have only a 3.6% chance of actually having the disease—much better than 90%! This is the power of Bayes’ rule: it allows you to incorporate prior information to get a more accurate estimation of *conditional probabilities* (the probability of something, given the data).
+
+#### 1.1 Using naive Bayes for classification
+
+Let’s take another, more machine learning–focused, example. Imagine that you have a database of tweets from the social media platform Twitter, and you want to build a model that automatically classifies each tweet into a topic. The topics are
+
+-   Politics
+-   Sports
+-   Movies
+-   Other
+
+You create four categorical predictor variables:
+
+-   Whether the word opinion is present
+-   Whether the word score is present
+-   Whether the word game is present
+-   Whether the word cinema is present
+
+Note that I’m keeping things simple for this example. If we were really trying to build a model to predict tweet topics, we would need to include many more words than this!
+
+For each of our four topics, we can express the probability of a case belonging to that topic as
+
+![](images/clipboard-3282037220.png)
+
+Now that we have more than one predictor variable, p(words\|topic) is the likelihood of a tweet having that exact combination of words present, given the tweet is in that topic. We estimate this by finding the likelihood of having this combination of values of each predictor variable individually, given that the tweet belongs to that topic, and multiply them together.
+
+![](images/clipboard-4066390016.png)
+
+For example, if a tweet contains the words opinion, score, and game, but not cinema, then the likelihood would be as follows for any particular topic:
+
+![](images/clipboard-1593117439.png)
+
+Now, the likelihood of a tweet containing a certain word if it’s in a particular topic is simply the proportion of tweets from that topic that contain that word. Multiplying the likelihoods together from each predictor variable gives us the likelihood of observing this *combination* of predictor variable values (this combination of words), given a particular class.
+
+This is what makes naive Bayes “naive.” By estimating the likelihood for each predictor variable individually and then multiplying them, we are making the very strong assumption that the predictor variables are independent. In other words, we are assuming that the value of one variable has no relationship to the value of another one. In the majority of cases, this assumption is not true. For example, if a tweet contains the word *score*, it may be more likely to also include the word *game*.
+
+In spite of this naive assumption being wrong quite often, naive Bayes tends to perform well even in the presence of non-independent predictors. Having said this, strongly dependent predictor variables will impact performance. So the likelihood and prior probabilities are fairly simple to compute and are the parameters learned by the algorithm; but what about the evidence (*p*(words))? In practice, because the values of the predictor variables are usually reasonably unique to each case in the data, calculating the evidence (the probability of observing that combination of values) is very difficult. As the evidence is really just a normalizing constant that makes all the posterior probabilities sum to 1, we can discard it and simply multiply the likelihood and prior probability:
+
+$$
+posterior ∝ likelihood × prior
+$$
+
+Note that instead of an `=` sign, I use $∝$ to mean “proportional to,” because without the evidence to normalize the equation, the posterior is no longer equal to the likelihood times the prior. This is okay, though, because proportionality is good enough to find the most likely class. Now, for each tweet, we calculate the relative posterior probability for each of the topics:
+
+$$ p(politics|words) ∝ p(words|politics) × p(politics) $$ $$p(sports|words) ∝ p(words|sports) × p(sports)$$ $$p(movies|words) ∝ p(words|movies) × p(movies)$$ $$p(other|words) ∝ p(words|other) × p(other)$$
+
+Then we assign the tweet to the topic with the highest relative posterior probability.
+
+#### 1.2 Calculating the likelihood for categorical and continuous predictors
+
+When we have a categorical predictor (such as whether a word is present or not), naive Bayes uses that proportion of training cases in that particular class, with that value of the predictor. When we have a continuous variable, naive Bayes (typically) assumes that the data within each group is normally distributed. The probability density of each case based on this fitted normal distribution is then used to estimate the likelihood of observing this value of the predictor in that class. In this way, cases near the mean of the normal distribution for a particular class will have high probability density for that class, and cases far away from the mean will have a low probability density.
+
+When your data has a mixture of categorical and continuous predictors, because naive Bayes assumes independence between data values, it simply uses the appropriate method for estimating the likelihood, depending on whether each predictor is categorical or continuous.
+
+### 2. Building your first naive Bayes model
+
+Let's build and evaluate the performance of a naive Bayes model to predict political party affiliation. Imagine that you’re a political scientist. You’re looking for common voting patterns in the mid-1980s that would predict whether a US congressperson was a Democrat or Republican. You have the voting record of each member of the House of Representatives in 1984, and you identify 16 key votes that you believe most strongly split the two political parties. Your job is to train a naive Bayes model to predict whether a congressperson was a Democrat or a Republican, based on how they voted throughout the year.
+
+#### 2.1 Loading and exploring the `HouseVotes84` dataset
+
+Now let’s load the data, which is built into the mlbench package, convert it into a tibble, and explore it. We have a tibble containing 435 cases and 17 variables of members of the House Representatives in 1984. The Class variable is a factor indicating political party membership, and the other 16 variables are factors indicating how the individuals voted on each of the 16 votes. A value of `y` means they voted in favor, a value of `n` means the voted against, and a missing value (`NA`) means the individual either abstained or did not vote. Our goal is to train a model that can use the information in these variables to predict whether a congressperson was a Democrat or Republican, based on how they voted.
+
+Note that ordinarily I would manually give names to unnamed columns to make it clearer what I’m working with. In this example, the variable names are the names of votes and are a little cumbersome, so we’ll stick with V1, V2, and so on. If you want to see what issue each vote was for, run `?mlbench::House-Votes84`.
+
+It looks like we have a few missing values (`NAs`) in our tibble. Let’s summarize the number of missing values in each variable using the `map_dbl()` function. `map_dbl()` iterates a function over every element of a vector/list (or, in this case, every column of a tibble), applies a function to that element, and returns a vector containing the function output. The first argument to the `map_dbl()` function is the name of the data we’re going to apply the function to, and the second argument is the function we want to apply. I’ve chosen to use an anonymous function (using the `~` symbol as shorthand for `function(.)`. Our function passes each vector to `sum(is.na(.))` to count the number of missing values in that vector. This function is applied to each column of the tibble and returns the number of missing values for each.
+
+Note that an *anonymous* function is a function that we define *on the fly* instead of predefining a function and assigning it to an object.
+
+```{r LOAD DATA, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+data1 <- data("HouseVotes84", package = "mlbench");
+
+
+
+data_2 <- as_tibble(HouseVotes84);
+
+
+is.na(data_2);
+sum(is.na(data_2))
+
+map_dbl(data_2, ~sum(is.na(.)))
+
+
+
+
+
+
+
+```
+
+Every column in our tibble has missing values except the `Class` variable! Luckily, the naive Bayes algorithm can handle missing data in two ways:
+
+-   By omitting the variables with missing values for a particular case, but still using that case to train the model
+
+-   By omitting that case entirely from the training set
+
+By default, the naive Bayes implementation that `mlr` uses is [to keep cases and drop variables]{.underline}. This usually works fine if the ratio of missing to complete values for the majority of cases is quite small. However, if you have a small number of variables and a large proportion of missing values, you may wish to omit the cases instead (and, more broadly, consider whether your dataset is sufficient for training).
+
+#### 2.2 Plotting the data
+
+Let’s plot our data to get a better understanding of the relationships between political party and votes. Once again, we’ll use our trick to gather the data into an untidy format so we can facet across the predictors. Because we’re plotting categorical variables against each other, we set the `position` argument of the `geom_bar()` function to `"fill"`, which creates stacked bars for `y`, `n`, and `NA` responses that sum to 1.
+
+```{r PLOTTING THE DATA, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+
+long_vote <- pivot_longer(data_2, names_to ="Votes", values_to ="Result", -Class) |> mutate(Votes = as.factor(Votes))
+
+ggplot(data = long_vote, aes(Class, fill= Result)) + geom_bar(position = "fill")+ facet_wrap(.~Votes, scales = "free_y") + theme_bw()
+
+
+```
+
+We can see there are some very clear differences in opinion between Democrats and Republicans!
+
+#### 2.3 Training the model
+
+Now let’s create our task and learner, and build our model. We set the Class variable as the classification target of the `makeClassifTask()` function, and the algorithm we supply to the `makeLearner()` function is `"classif.naiveBayes"`.
+
+```{r MAKE TASK AND LEARNER AND TRAIN MODEL, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+install.packages("caret")
+
+vote_task <- makeClassifTask(data = data_2, target ="Class");
+
+bayes_learner <- makeLearner("classif.naiveBayes");
+
+#?makeLearner
+model <- mlr::train(learner = bayes_learner, task = vote_task);
+model
+```
+
+The model training completes with no errors because naive Bayes can handle missing data.
+
+Next, we’ll use 10-fold cross-validation repeated 50 times to evaluate the performance of our model-building procedure. Because this is a [two-class classification problem]{.underline}, we have access to the *false positive rate* and *false negative rate*, and so we ask for these as well in the `measures` argument to the `resample()` function.
+
+```{r CROSS-VALIDATING THE MODEL, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+res_k4 <- makeResampleDesc(method = "RepCV",
+                 folds = 10,
+                 reps = 50,
+                 stratify = T);
+res_k4;
+
+cross_vadiation <- resample(learner = bayes_learner, 
+                       task = vote_task, 
+                       resampling = res_k4,
+                       measures = list(mmce, acc, fpr, fnr));
+cross_vadiation
+
+
+```
+
+Our model correctly predicts 90% of test set cases in our cross-validation. That’s not bad! Now let’s use our model to predict the political party of a new politician, based on their votes.
+
+```{r USING THE MODEL TO MAKE PREDICTION, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+politician <- tibble(V1 = "n", V2 = "n", V3 = "y", V4 = "n", 
+                     V5 = "n", V6 = "y", V7 = "y", V8 = "y", 
+                     V9 = "y", V10 = "y", V11 = "n", V12 = "y",
+                     V13 = "n", V14 = "n", V15 = "y", V16 = "n")
+
+
+pred <- predict(model, newdata = politician);
+pred;
+
+
+```
+
+Our model predicts that the new politician is a Democrat.
+
+### 3. Strengths and weaknesses of naive Bayes
+
+While it often isn’t easy to tell which algorithms will perform well for a given task, here are some strengths and weaknesses that will help you decide whether naive Bayes will perform well for your task.
+
+The strengths of naive Bayes are as follows:
+
+-   It can handle both continuous and categorical predictor variables.
+
+-   It’s computationally inexpensive to train.
+
+-   It commonly performs well on topic classification problems where we want to classify documents based on the words they contain.
+
+-   It has no hyperparameters to tune.
+
+-   It is probabilistic and outputs the probabilities of new data belonging to each class.
+
+-   It can handle cases with missing data.
+
+The weaknesses of naive Bayes are these:
+
+-   It assumes that continuous predictor variables are normally distributed (typically), and performance will suffer if they’re not.
+
+-   It assumes that predictor variables are independent of each other, which usually isn’t true. Performance will suffer if this assumption is severely violated.
+
+### Exercise
+
+#### Exercise 1
+
+Use the `map_dbl()` function to count the number of `y` values in each column of `votesTib`.
+
+#### Exercise 2
+
+Wrap your naive Bayes model inside the `getLearnerModel()` function. Can you identify the prior probabilities and the likelihoods for each vote?
+
+### Solution
+
+```{r EXERCISE, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Exercise 1
+
+
+
+# Exercise 2
+
+
+
+# Conclusion: 
+
+```
+
+End-of-File\
+2026-02-04

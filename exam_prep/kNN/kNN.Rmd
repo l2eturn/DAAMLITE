@@ -1,0 +1,233 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+```{r}
+# ✅ Vector (เก็บค่าเดียวกันหลายตัว)
+x <- c(1, 2, 3, 4, 5)
+typeof(x)  # "double"
+x[1]       # ใช้ [index] เพื่อเลือกตัว
+
+# ✅ Data Frame (ตาราง - ใช้มากที่สุดใน ML)
+df <- data.frame(
+  name = c("Alice", "Bob", "Charlie"),
+  age = c(25, 30, 35),
+  score = c(85, 90, 88))
+df$name       # ใช้ $ เพื่อเลือก column
+df[1, ]       # เลือก row แรก
+df[, 2]       # เลือก column ที่ 2
+
+# ✅ Tibble (Data frame ที่ดีกว่า - จาก tidyverse)
+library(tidyverse)
+df <- tibble(
+  name = c("Alice", "Bob", "Charlie"),
+  age = c(25, 30, 35),
+  score = c(85, 90, 88)
+)
+
+# ✅ Matrix (ตารางตัวเลขเท่านั้น)
+m <- matrix(c(1, 2, 3, 4), nrow = 2, ncol = 2)
+m[1, 1]  # Row 1, Column 1
+```
+
+## Pipe (Ctrl + Shift + M)
+
+```{r}
+# ❌ แบบเก่า - ยุ่นยาก
+result <- select(filter(mtcars, cyl == 4), mpg, hp)
+
+# ✅ แบบใหม่ - ใช้ pipe %>%
+result <- mtcars %>%
+  filter(cyl == 4) %>%
+  select(mpg, hp)
+result
+# แปลว่า:
+# 1. เอาข้อมูล mtcars
+# 2. เลือก row ที่ cyl == 4
+# 3. เลือก column mpg กับ hp
+```
+
+## Functions - การเขียน Function
+
+```{r}
+# ✅ ฟังก์ชันง่ายๆ
+add <- function(a, b) {
+  return(a + b)
+}
+add(3, 5)  # Output: 8
+
+# ✅ ฟังก์ชันที่มี default value
+greet <- function(name = "Friend") {
+  paste("Hello,", name)
+}
+greet()            # "Hello, Friend"
+greet("Alice")     # "Hello, Alice"
+
+# ✅ ฟังก์ชันที่return หลายค่า
+summary_stats <- function(x) {
+  list(
+    mean = mean(x),
+    sd = sd(x),
+    n = length(x)
+  )
+}
+summary_stats(c(1, 2, 3, 4, 5))
+# Output:
+# $mean
+# [1] 3
+# $sd
+# [1] 1.58
+# $n
+# [1] 5
+```
+
+## ggplot2
+
+```{r}
+library(ggplot2)
+
+# ✅ Scatter plot
+df1 <- mtcars;
+ggplot(mtcars, aes(x = wt, y = mpg, color = factor(cyl))) +
+  geom_point(size = 3) +
+  labs(title = "Cars: Weight vs MPG",
+       x = "Weight (1000 lbs)",
+       y = "Miles per Gallon") +
+  theme_bw()
+
+# ✅ Box plot
+ggplot(mtcars, aes(x = factor(cyl), y = mpg, fill = factor(cyl))) +
+  geom_boxplot() +
+  theme_bw()
+
+# ✅ Histogram
+ggplot(mtcars, aes(x = mpg, fill = factor(cyl))) +
+  geom_histogram(bins = 10, alpha = 0.7) +
+  facet_wrap(~cyl) +  # แบ่ง subplot ตามกลุ่ม
+  theme_bw()
+
+```
+
+## dplyr Verbs - จัดการข้อมูล
+
+```{r}
+library(tidyverse)
+
+df <- mtcars
+
+# ✅ filter() - เลือก rows
+df %>% filter(cyl == 4)  # เลือก cyl = 4 เท่านั้น
+df %>% filter(mpg > 20)  # mpg > 20
+
+# ✅ select() - เลือก columns
+df %>% select(mpg, hp, cyl)  # เลือก 3 columns นี้
+df %>% select(-cyl)          # ยกเว้น cyl
+
+# ✅ mutate() - สร้าง column ใหม่
+df %>% mutate(
+  hp_per_cyl = hp / cyl,  # column ใหม่
+  log_mpg = log(mpg)
+)
+
+# ✅ arrange() - เรียงลำดับ
+df %>% arrange(mpg)         # น้อยไปมาก
+df %>% arrange(desc(mpg))   # มากไปน้อย
+
+# ✅ group_by() + summarise() - รวมข้อมูล
+df %>%
+  group_by(cyl) %>%
+  summarise(
+    mean_mpg = mean(mpg),
+    mean_hp = mean(hp),
+    n = n()  # นับจำนวน
+  )
+
+# ✅ เชื่อมทั้งหมด
+df %>%
+  filter(hp > 100) %>%
+  select(mpg, hp, cyl) %>%
+  arrange(mpg) %>%
+  mutate(hp_cat = ifelse(hp > 150, "High", "Low"))
+```
+
+## การทำข้อมูล Clean (Data Preprocessing)
+
+```{r}
+library(tidyverse)
+
+# ✅ มี missing values?
+df <- tibble(
+  name = c("Alice", "Bob", NA),
+  age = c(25, NA, 35),
+  score = c(85, 90, 88)
+)
+
+# Check
+is.na(df)  # TRUE/FALSE สำหรับแต่ละค่า
+sum(is.na(df))  # นับ missing
+df
+# Remove rows ที่มี NA
+df %>% drop_na()
+df
+# Replace NA ด้วยค่าเฉลี่ย
+df <- df %>%
+  mutate(age = ifelse(is.na(age), mean(age, na.rm = TRUE), age))
+df
+# ✅ Standardize (ทำให้ mean=0, sd=1)
+# สำคัญ! kNN ต้องทำแบบนี้ เพราะวัดระยะทาง
+df <- df %>%
+  mutate(
+    age_scaled = scale(age)[, 1],
+    score_scaled = scale(score)[, 1]
+  )
+df
+```
+
+## 🎯 Part 2: kNN คืออะไร?
+
+## 2.1 ความเข้าใจพื้นฐาน
+
+### วิธีการทำงาน: 4 ขั้นตอน
+
+```{##━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━}
+ #         HOW kNN WORKS (Step by Step)
+#━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+#INPUT: ข้อมูลใหม่ที่ไม่รู้ class
+#  ↓
+#STEP 1: คำนวณระยะทาง (distance) ไปยังข้อมูลทั้งหมด
+#  ↓
+#STEP 2: เรียงลำดับจากใกล้ที่สุด
+ # ↓
+#STEP 3: เลือก k ตัวแรก (เช่น k=5 → เลือก 5 ตัวใกล้สุด)
+  ↓
+#STEP 4: ให้คะแนน - class ไหนมีตัวมากที่สุด → นั่นคือ class!
+#  ↓
+#OUTPUT: Prediction ✅
+```
+
+```{r}
+# ✅ Load packages
+library(tidyverse)
+library(mclust)      # มี diabetes dataset
+library(mlr)         # Tools สำหรับ ML
+library(caret)       # Alternative ML package
+
+# ✅ Load diabetes data
+data("diabetes", package = "mclust")
+diabetes <- as_tibble(diabetes)
+
+# ✅ Explore
+str(diabetes)
+head(diabetes)
+summary(diabetes)
+
+# Output:
+# A tibble: 145 x 4
+#   glucose insulin  sspg class
+#     <dbl>   <dbl> <dbl> <fct>
+# 1      89       86   325 Normal
+# 2      80       90   290 Normal
+# ...
+```

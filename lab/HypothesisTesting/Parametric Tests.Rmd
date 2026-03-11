@@ -1,0 +1,643 @@
+---
+title: "Parametric Tests"
+author: "Pongsun B."
+date: "2026-01-14"
+output:
+  pdf_document: default
+  html_document: default
+header-includes:
+  - \pagenumbering{gobble}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Call required packages, ex. "readxl", "tidyverse"
+if(!require(readxl)){install.packages("readxl")}
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(rcompanion)){install.packages("rcompanion")}
+if(!require(DescTools)){install.packages("DescTools")}
+if(!require(Hmisc)){install.packages("Hmisc")}
+if(!require(corrplot)){install.packages("corrplot")}
+if(!require(formatR)){install.packages("formatR")}
+if(!require(FSA)){install.packages("FSA")}
+if(!require(ggpubr)){install.packages("ggpubr")}
+
+```
+
+## ==== Introduction to Parametric Tests ====
+
+Parametric statistical tests are among the most common you'll encounter. They include *t*-test, analysis of variance, and linear regression.
+
+They are used when the dependent variable is an **interval/ratio** data variable. This might include variables measured in science such as fish length, child height, crop yield weight, or pollutant concentration in water.
+
+One advantage of using parametric statistical tests is that your audience will likely be familiar with the techniques and interpretation of the results. These tests are also often more flexible and more powerful than their nonparametric analogues.
+
+Their major drawback is that all parametric tests assume something about the distribution of the underlying data. [If these assumptions are violated, the resultant test statistics will not be valid, and the tests will not be as powerful as for cases when assumptions are met.]{.underline}
+
+#### **Count data may not be appropriate for common parametric tests**
+
+A frequent error is to use common parametric models and tests with count data for the dependent variable. Instead, count data could be analyzed either by using tests for nominal data or by using regression methods appropriate for count data. These include Poisson regression, negative binomial regression, and zero-inflated Poisson regression.
+
+#### **Percentage and proportion data**
+
+Percentage and proportion data are often inappropriate for parametric statistics for the same reasons given for count data. They will often not meet the assumptions of the tests, and are particularly problematic if there are some or many observations close to 0 or 1. The arcsine transformation was used traditionally, but logistic regression or beta regression may be more appropriate. However, if assumptions are approximately met, parametric analyses could be used.
+
+### **Assumptions in parametric statistics**
+
+All parametric analyses have assumptions about the underlying data, and these assumptions should be confirmed or assumed with good reason when using these tests.
+
+1.  **Random sampling**
+
+    All statistical tests assume that the data captured in the sample are randomly chosen from the population as a whole. Selection bias will obviously affect the validity of the outcome of the analysis.
+
+2.  **Normal distribution of data**
+
+    Parametric tests assume that the data come from a population of known distribution. In particular, the tests discussed in this class assume that the distribution of the data are normal in distribution. This will usually be assessed with a histogram of residuals, a density plot, or quantile--quantile (normal probability) plot.
+
+3.  **Homogeneity of variance**
+
+    Parametric analyses will also assume a homogeneity of variance among groups. That is, for Student's *t*-test comparing two groups, each group should have the same variance. As a technical note, by default R conducts a variant of the *t*-test called Welch's *t*-test. This test does not assume homogeneity of variance and so can be used to compare two groups with unequal variances.
+
+4.  **Outliers**
+
+    Outliers are observations whose value is far outside what is expected. They can play havoc with parametric analyses since they affect the distribution of the data and strongly influence the mean. There are a variety of formal tests for detecting outliers, but they will not be discussed here. It's my opinion that [outliers should not be removed from data unless there is a good reason]{.underline}, usually when a value is impossible or a measurement error of some kind is suspected.
+
+## ==== **One-sample t-test** ====
+
+One-sample tests are not used too often, but are useful to compare a set of values to a given default value. For example, one might ask if a set of student scores are significantly different from a "default" or "neutral" score of 75.
+
+**Appropriate data**
+
+-   One-sample data.
+
+-   Data are **interval/ratio**, and are continuous.
+
+-   Data are normally distributed.
+
+-   Moderate skewness is permissible if the data distribution is unimodal without outliers.
+
+**Hypotheses**
+
+-   Null hypothesis: The mean of the population from which the data were sampled is equal to the default value.
+
+-   Alternative hypothesis (two-sided): The mean of the population from which the data were sampled is not equal to the default value.
+
+**Interpretation**
+
+Reporting significant results as, e.g., "Mean score for Variable A was significantly different from a default value of 75" is acceptable.
+
+### **One-sample *t*-test example**
+
+In the following example, Brendon Small has his students keep diaries of what they eat for a week, and then calculate the daily sodium intake in milligrams. As a first step in the analysis, he wants to compare mean sodium intake by his students to the American Heart Association recommendation of 1500 mg.
+
+A one-sample *t*-test can be conducted with the `t.test` function in the native `stats` package. Conveniently the output includes the mean of the sample, a confidence interval for that mean, and a *p*-value for the *t*-test.
+
+`t.test(x, y = NULL,`
+
+`alternative = c("two.sided", "less", "greater"),`
+
+`mu = 0, paired = FALSE, var.equal = FALSE,`
+
+`conf.level = 0.95, …)`
+
+**Test of Normality**
+
+-   Histogram
+
+-   Normal quantile plot
+
+```{r One-sample t-test, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+MyData <- read_xlsx("./Data/parametric_data.xlsx", sheet = "Sheet1", 
+                    range = "A1:C21")
+
+# Check the data frame
+str(MyData)
+summary(MyData)
+sd(MyData$Sodium)
+
+## Test of Normality
+# Histogram of MyData$Sodium
+ggplot(MyData, aes(x = Sodium)) + geom_histogram(bins = 6, fill = "lightblue") + ggtitle("Distribution of Sodium Intake (mg"); 
+
+# Normal quantile plot
+library(ggpubr)
+ggqqplot(MyData$Sodium);
+
+# Shapiro–Wilk normality test
+shapiro.test(MyData$Sodium);
+# H0 Data is normal == yes
+# H1 Data is not normal 
+# if p-value is more than apha == fail to reject H0, eg alpha == 0.05
+
+# Example of non-normality
+set.seed(123)
+aa <- rexp(50)
+ggplot(NULL, aes(aa)) +
+  geom_histogram(bins = 6)
+aa
+# Normal quantile plot
+ggqqplot(aa);
+# Shapiro–Wilk normality test
+shapiro.test(aa);
+
+## One-sample t-test
+# H0: mu >= 1500
+# H1: mu < 1500
+# greater: > , less: < ; 
+# alpha == 0.1;
+# fail to reject H0; so students does not intake more than 1500 mg; 
+
+t.test(MyData$Sodium, mu = 1500, alternative = "greater", conf.level = 0.9);
+
+
+# Conclusion
+
+
+# How to calculate the test statistic manually
+
+
+```
+
+## ==== **Two-sample t-test** ====
+
+The two-sample unpaired *t*-test is a commonly used test that compares the means of two samples.
+
+**Appropriate data**
+
+-   Two-sample data. That is, one measurement variable in two groups or samples.
+
+-   Dependent variable is **interval/ratio**, and is continuous.
+
+-   Independent variable is a factor with two levels. That is two groups.
+
+-   Data for each population are normally distributed.
+
+-   For Student's *t*-test, the two samples need to have the same variance. However, Welch's *t*-test, which is used by default in R, does not assume equal variances.
+
+-   Observations between groups are independent. That is, not paired or repeated measures data.
+
+-   Moderate skewness is permissible if the data distribution is uni-modal without outliers.
+
+**Hypotheses**
+
+-   Null hypothesis: The means of the populations from which the data were sampled for each group are equal.
+
+-   Alternative hypothesis (two-sided): The means of the populations from which the data were sampled for each group are not equal.
+
+**Interpretation**
+
+Reporting significant results as "Mean of variable Y for group A was different than that for group B." is acceptable.
+
+### **Two-sample *t*-test example**
+
+In the following example, Brendon Small and Coach McGuirk have their SNAP-Ed students keep diaries of what they eat for a week, and then calculate the daily sodium intake in milligrams.  Since the classes have received different nutrition education programs, they want to see if the mean sodium intake is the same for both classes.
+
+A two-sample *t*-test can be conducted with the `t.test` function. The default is to use Welch's t-test, which doesn't require equal variance between groups. Conveniently the output includes the mean of each sample, a confidence interval for the difference in means, and a *p*-value for the *t*-test.
+
+```{r Two-sample t-test}
+MyData2 <- read_xlsx("./Data/parametric_data.xlsx",
+                     sheet = "Sheet2",
+                     range = "A1:D41");
+
+# group_by and summarise ต้องใช้คู่กัน
+
+# ctrl + shift + M or |>
+
+MyData2 %>% 
+  group_by(Instructor) %>% 
+  summarise(mean = mean(Sodium),
+            sd = sd(Sodium),
+            max = max(Sodium),
+            min = min(Sodium))
+# new pipe
+MyData2 |> group_by(Instructor) |> summarise(mean = mean(Sodium),
+                                            sd = sd(Sodium),
+                                            max = max(Sodium),
+                                            min = min(Sodium))
+# Summarize data by group
+library(FSA) # ~ Tilde : x ~ y means x is a function of y;
+Summarize(Sodium ~ Instructor + Color,
+          data = MyData2,
+          digits = 3)
+
+# F-test to test for homogeneity in variances
+# ทดสอบว่า varience ใกล้เคียงกันมั้ย
+# H0: ratio of variances is equal to 1
+# H1: ratio of variances is not equal to 1
+var.test(Sodium ~ Instructor,
+         data = MyData2,
+         digits = 3);
+# Result shown that p-value > alpha ,so H0 is true then varience is equally --> student t-test.
+
+## Test of Normality
+# Histograms of each group
+
+ggplot(MyData2, aes(x = Sodium, group = Instructor,fill = Instructor)) + 
+  geom_histogram(binwidth= 100) + 
+  facet_grid(~ Instructor) + #ด้าน or facet_grid(Instructor ~ .) 
+  theme(legend.position = "bottom") +
+  ggtitle("Distribution of Sodium Intake (mg) by Instructor");
+
+# Density plot
+ggplot(MyData2, aes(x = Sodium, group = Instructor,fill = Instructor)) + 
+  geom_density() +
+  facet_grid((~ Instructor))
+# Box plots by group
+ggplot(MyData2, aes(y = Sodium, x = Instructor, group = Instructor,fill = Instructor)) + 
+  geom_boxplot(alpha = 0.5) + # alpha == transparent
+  theme(legend.position = "null");
+
+# Shapiro–Wilk normality test
+MyData2_wide <- pivot_wider(MyData2,
+                            names_from = "Instructor",
+                            values_from = "Sodium")
+
+shapiro.test(MyData2_wide$`Brendon Small`)
+shapiro.test(MyData2_wide$`Coach McGuirk`)
+#conclusion Brendon is normal dist and Coach is normal dist;
+#p-value is more than 0.05 , so fail to reject H0;
+
+## Two-sample unpaired t-test
+# H0: mu1 (Brendon) <= mu2 (Coach)
+# H1: mu1 (Brendon) > mu2 (Coach)
+t.test(Sodium ~ Instructor,
+       data = MyData2,
+       alternative = "two.sided",
+       var.equal = T);
+# t.test default is wrench t-test
+
+# Conclusion
+# Fail to reject H0, so mu(coach) ~= mu(brandon)
+
+# H1: mu2 (Coach) < mu1 (Brendon)
+# H0 mu1 = mu2;
+# brendon first
+t.test(Sodium ~ Instructor,
+       data = MyData2,
+       alternative = "greater",
+       var.equal = T)
+# Conclusion
+# fail to reject H0, so mu1 == mu 2
+```
+
+## ==== **Paired t-test** ====
+
+The paired *t*-test is commonly used to compare the means of two populations of paired observations by testing if the difference between pairs is statistically different from zero.
+
+**Appropriate data**
+
+-   Two-sample data. That is, one measurement variable in two groups or samples.
+
+-   Dependent variable is **interval/ratio**, and is continuous.
+
+-   Independent variable is a factor with two levels. That is two groups.
+
+-   Data are paired. That is, the measurement for each observation in one group can be paired logically or by subject to a measurement in the other group.
+
+-   The distribution of the difference of paired measurements is normally distributed.
+
+-   Moderate skewness is permissible if the data distribution is uni-modal without outliers.
+
+**Hypotheses**
+
+-   Null hypothesis: The population mean of the differences between paired observations is equal to zero.
+
+-   Alternative hypothesis (two-sided): The population mean of the differences between paired observations is not equal to zero.
+
+**Interpretation**
+
+Reporting significant results as "Mean of variable Y for group A was different than that for group B." or "Variable Y increased from before to after" is acceptable.
+
+### **Paired *t*-test example**
+
+In the following example, Dumbland Extension had adult students fill out a financial literacy knowledge questionnaire both **before** and **after** completing a financial management workshop. Each student's score before and after was paired by student.
+
+Note in the following data that the students' names are repeated, so that there is a before score for student *a* and an after score for student *a*.
+
+Since the data is in long format, we'll order by *Time*, then *Student* to be sure the first observation for *Before* is student *a* and the first observation for *After* is student *a*, and so on.
+
+#### **Check the number of paired observations**
+
+It is helpful to create a table of the counts of observations to be sure that there is one observation for each student for each time period.
+
+#### **Histogram of difference data**
+
+A histogram with a normal curve imposed will be used to check if the paired differences between the two populations is approximately normal in distribution.
+
+First, two new variables, *Before* and *After*, are created by extracting the values of *Score* for observations with the *Time* variable equal to *Before* or *After*, respectively.
+
+#### **Paired t-test**
+
+Note that the output shows the *p*-value for the test, and the simple difference in the means for the two groups. Note that for this test to be conducted correctly, the first observation for *Before* is student *a* and the first observation for *After* is student *a*, and so on.
+
+สร้าง col ใหม่ขึ้นมาแล้วทำ t-test ปกติ
+
+eg. pre-test,test so we use the same student but 2 events
+
+```{r Paired t-test, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+MyData3 <- read_xlsx("./Data/parametric_data.xlsx",
+                     sheet = "Sheet3",
+                     range = "A1:C21")
+
+MyData3_wide <- pivot_wider(data = MyData3, 
+                            names_from = "Time", 
+                            values_from = "Score") %>% 
+  mutate(Diff =  After - Before)
+
+# Check the number of paired observations
+xtabs( ~ Student + Time, data = MyData3)
+
+## Test of Normality
+# Density plot of difference data
+ggplot(MyData3_wide, aes(x = Diff)) + geom_density(fill = "lightblue")
+
+
+# Shapiro–Wilk normality test
+shapiro.test(MyData3_wide $ Diff);
+# P-value > alpha so fail to reject H0;
+
+# Paired t-test 
+# H1: mu_after - mu_before > 0
+# H1: mu_diff > 0
+# t.test will always use x-y
+
+t.test(x = MyData3_wide$After,
+        y = MyData3_wide$Before,
+        alternative = "greater",
+        paired = T,
+        var.equal = T);
+
+t.test(MyData3_wide$After,
+      MyData3_wide$Before,
+      paired = TRUE,
+      alternative = "greater")
+# conclusion shown that p-value is less than 0.05, so we can reject null hypotesis
+# means post-test score better then pre-test score;
+
+### cannot use 'paired' in formula method!!
+#t.test(Score ~ Time, data = MyData3, 
+#       mu = 0,
+#       paired = T,
+#       alternative = "greater")
+### cannot use 'paired' in formula method!!
+
+
+# Alternatively, use Diff in MyData3_wide
+#H0 == 5, H1 > 5
+
+t.test(MyData3_wide$Diff,
+       mu = 5,
+       alternative = "greater",
+       var.equal = T);
+
+#ต้องมีmu = 0 มาด้วย semiliar to 1-t-test;
+
+# Conclusion
+
+
+```
+
+## ==== **One-way ANOVA** ====
+
+มีมากกว่า 2 group
+
+A one-way analysis of variance (ANOVA) is similar to an independent *t*-test, except that it is capable of comparing more than two groups.
+
+We will conduct the ANOVA by constructing a general linear model with the `lm` function in the native `stats` package. The general linear model is the basis for more advanced parametric models that can include multiple independent variables that can be continuous or factor variables.
+
+**Appropriate data**
+
+-   One-way data. That is, one measurement variable in two or more groups.
+
+-   Dependent variable is **interval/ratio**, and is continuous.
+
+-   Independent variable is a factor with two or more levels. That is, two or more groups.
+
+-   In the general linear model approach, residuals are normally distributed.
+
+-   In the general linear model approach, groups have the same variance. That is, homoscedasticity or homogeneity of variances.
+
+-   Observations among groups are independent. That is, not paired or repeated measures data.
+
+-   Moderate deviation from normally-distributed residuals is permissible.
+
+**Hypotheses**
+
+-   Null hypothesis: The means of the measurement variable for each group are equal.
+
+-   Alternative hypothesis (two-sided): The means of the measurement variable for among groups are not equal.
+
+**Interpretation**
+
+-   Reporting significant results for the omnibus test as "Significant differences were found among means for groups." is acceptable. Alternatively, "A significant effect for Independent Variable on Dependent Variable was found."
+
+-   Reporting significant results for mean separation post-hoc tests as "Mean of variable Y for group A was different than that for group B." is acceptable.
+
+### **One-way ANOVA example**
+
+In the following example, Brendon Small, Coach McGuirk, and Melissa Robbins have their students keep diaries of what they eat for a week, and then calculate the daily sodium intake in milligrams. Since the classes have received different nutrition education programs, they want to see if the mean sodium intake is the same among classes. 
+
+The analysis will be conducted by constructing a general linear model with the `lm` function in the native `stats` package, and conducting the analysis of variance with the `Anova` function in the `car` package.
+
+Plots will be used to check model assumptions for normality of residuals and homoscedasticity.
+
+Finally, if the effect of *Instructor* is significant, a mean comparison test will be conducted to determine which group means differ from which others.
+
+#### **Linear model**
+
+The model for the analysis of variance is specified with the `lm` function. Typical formula notation is used, in this case with *Sodium* as the dependent variable, *Instructor* as the independent variable.
+
+The `summary` function will report the coefficients for the model, including the intercept and other terms. Factor variables are shown with their dummy coding. For each term, an estimate, standard error of the estimate, and *t*- and *p*-values for the estimates are given. These are helpful for other linear models, but are often ignored in the case of ANOVA.
+
+The `summary` function also reports the *p*-value and *r-squared* value for the model as a whole. These are occasionally used in reporting results of ANOVA.
+
+#### **Conduct analysis of variance**
+
+An analysis of variance table is reported as the result of the `Anova` function in the `car` package. By default the `Anova` function uses type-II sum of squares, which are appropriate in common ANOVA analyses.
+
+The table of results contains the *p*-value for each effect tested in the model.
+
+```{r One-way ANOVA, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+MyData4 <- read_xlsx("./Data/parametric_data.xlsx", sheet = "Sheet4")
+class(MyData4)
+# Order factors by the order in data frame. Otherwise, R will alphabetize them
+
+# why we need to change it to factor ????
+# เพราะ One-way ANOVA ต้องการให้ตัวแปรอิสระเป็น “ตัวแปรกลุ่ม (categorical)”
+# ใน R ตัวแปรกลุ่ม = factor
+# ถ้าไม่แปลงเป็น factor → R อาจตีความผิดว่าเป็นตัวเลขต่อเนื่อง 😱
+
+MyData4$Instructor = factor(MyData4$Instructor,
+                         levels = unique(MyData4$Instructor))
+MyData4$Instructor = as.factor(MyData4$Instructor)
+class(MyData4$Instructor);
+
+MyData4 |> 
+  group_by(Instructor) |>
+  summarise(
+    mean_sodium = mean(Sodium),
+    sd_sodium = sd(Sodium),
+  )
+
+# Summarize data by group
+library(FSA)
+Summarize(Sodium ~ Instructor,
+          data = MyData4,
+          digits = 3)
+
+# Box plots for data by group
+ggplot(MyData4, aes(y = Sodium, x = Instructor, fill = Instructor)) +
+    geom_boxplot(alpha = 0.5) +
+    theme(legend.position = "bottom")
+
+# confident inteval mu += (t_alpha/2)*(SD/sqrt(n));
+# Plot of means and confidence intervals
+
+library(rcompanion)
+Mean_conf <- groupwiseMean(Sodium ~ Instructor, data = MyData4, 
+                           conf = 0.95, digits = 3)
+Mean_conf
+
+ggplot(Mean_conf,aes(x = Instructor,y = Mean)) +
+geom_errorbar(aes(ymin = Trad.lower, ymax = Trad.upper), width = 0.1, size  = 0.5)+
+geom_point(shape = 15, size  = 4) + #point of mean
+theme_bw() +
+theme(axis.title = element_text(face = "bold")) +
+ylab("Mean sodium, mg")
+
+# Define linear model
+
+# Check Histogram of residuals
+
+
+# Conduct analysis of variance
+# H0: mu_A = mu_B = mu_C
+# H1: at least 1 group has different mean 
+# H1: mu_A != mu_B != mu_C (WRONG!!!)
+
+# Another method (run ANOVA directly)
+result_anova <- aov(Sodium ~ Instructor, data = MyData4)
+summary(result_anova)
+
+# Post-hoc analysis
+# Tukey multiple pairwise-comparisons 
+# Tukey HSD (Tukey Honest Significant Differences)
+TukeyHSD(result_anova);
+
+# Post Analysis
+# 1. Any pattern between Residual and Fitted value?
+# 2. Residual is normally distributed or not?
+plot(result_anova)
+
+```
+
+## ==== **Two-way ANOVA** ====
+
+A two-way anova can investigate the *main effects* of each of two independent factor variables, as well as the effect of the *interaction* of these variables.
+
+**Appropriate data**
+
+-   Two-way data. That is, one dependent variable measured across two independent factor variables.
+
+-   Dependent variable is **interval/ratio**, and is continuous.
+
+-   Independent variables are a factor with two or more levels. That is, two or more groups for each independent variable.
+
+-   In the general linear model approach, residuals are normally distributed
+
+-   In the general linear model approach, groups have the same variance. That is, homoscedasticity.
+
+-   Observations among groups are independent. That is, not paired or repeated measures data.
+
+-   Moderate deviation from normally-distributed residuals is permissible.
+
+**Hypotheses**
+
+-   Null hypothesis 1: The means of the dependent variable for each group in the first independent variable are equal.
+
+-   Alternative hypothesis 1 (two-sided): The means of the dependent variable for each group in the first independent variable are not equal.
+
+-   Similar hypotheses are considered for the other independent variable.
+
+-   Similar hypotheses are considered for the interaction effect.
+
+**Interpretation**
+
+-   Reporting significant results for the effect of one independent variable as "Significant differences were found among means for groups." is acceptable. Alternatively, "A significant effect for independent variable on dependent variable was found."
+
+-   Reporting significant results for the interaction effect as "A significant effect for the interaction of independent variable 1 and independent variable 2 on dependent variable was found." Is acceptable.
+
+-   Reporting significant results for mean separation post-hoc tests as "Mean of variable Y for group A was different than that for group B." is acceptable.
+
+### **Two-way ANOVA example**
+
+This example will revisit the sodium intake data set with Brendon Small and the other instructors. This time, though, they want to test not only the different nutrition education programs (indicated by *Instructor*), but also four supplements to the program, each of which they have used with some students.
+
+```{r Two-way ANOVA, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+MyData5 <- read_xlsx("./Data/parametric_data.xlsx", sheet = "Sheet5")
+
+MyData5$Instructor = factor(MyData5$Instructor,
+                            levels=unique(MyData5$Instructor))
+
+MyData5$Supplement = factor(MyData5$Supplement,
+                            levels=unique(MyData5$Supplement))
+
+# Use Summarize to check if cell sizes are balanced
+# We can use the n or nvalid columns in the Summarize output to check if cell sizes are balanced (if each combination of treatments have the same number of observations).
+
+library(rcompanion)
+Mean_conf2 <- groupwiseMean(Sodium ~ Instructor, data = MyData5, 
+                           conf = 0.95, digits = 3)
+Mean_conf2
+Mean_conf3 <- groupwiseMean(Sodium ~ Supplement, data = MyData5, 
+                           conf = 0.95, digits = 3)
+Mean_conf3
+
+ggplot(Mean_conf2,aes(x = Instructor,y = Mean)) +
+geom_errorbar(aes(ymin = Trad.lower, ymax = Trad.upper), width = 0.1, size  = 0.5)+
+geom_point(shape = 15, size  = 4) + #point of mean
+theme_bw() +
+theme(axis.title = element_text(face = "bold")) +
+ylab("Mean sodium, mg")
+
+ggplot(Mean_conf3,aes(x = Supplement,y = Mean)) +
+geom_errorbar(aes(ymin = Trad.lower, ymax = Trad.upper), width = 0.1, size  = 0.5)+
+geom_point(shape = 15, size  = 4) + #point of mean
+theme_bw() +
+theme(axis.title = element_text(face = "bold")) +
+ylab("Mean sodium, mg")
+
+library(FSA)
+Summarize(Sodium ~ Supplement + Instructor,
+          data = MyData5,
+          digits = 3)
+
+# Define linear model
+# Note that the interaction of Instruction and Supplement is indicated in the model definition by Instructor:Supplement.
+
+
+# Histogram of residuals
+
+
+# Conduct analysis of variance
+result_anova2 <- aov(Sodium ~ Instructor + Supplement, data = MyData5)
+summary(result_anova2)
+
+result_anova3 <- aov(Sodium ~ Instructor , data = MyData5)
+summary(result_anova2)
+# Another method (run ANOVA directly)
+
+
+# Tukey multiple pairwise-comparisons
+# Tukey HSD (Tukey Honest Significant Differences
+TukeyHSD(result_anova2)
+
+# Post Analysis
+# 1. Any pattern between Residual and Fitted value?
+# 2. Residual is normally distributed or not?
+
+plot(result_anova3)
+```
+
+End-of-File

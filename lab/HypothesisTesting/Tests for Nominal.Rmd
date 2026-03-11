@@ -1,0 +1,381 @@
+---
+title: "Tests for Nominal Variables"
+author: "Pongsun B."
+date: "2026-01-21"
+output:
+  pdf_document: default
+  html_document: default
+header-includes:
+  - \pagenumbering{gobble}
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+# Call required packages, ex. "readxl", "tidyverse"
+if(!require(readxl)){install.packages("readxl")}
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(rcompanion)){install.packages("rcompanion")}
+if(!require(DescTools)){install.packages("DescTools")}
+if(!require(Hmisc)){install.packages("Hmisc")}
+if(!require(corrplot)){install.packages("corrplot")}
+if(!require(formatR)){install.packages("formatR")}
+if(!require(ggmosaic)){install.packages("ggmosaic")}
+
+```
+
+## ==== Introduction to **Tests for Nominal Variables** ====
+
+The tests for nominal variables presented here can be used to determine
+
+-   if counts of observations for a nominal variable match a theoretical set of proportions for that variable (**"goodness-of-fit tests"**); or
+
+-   if there is an association between two nominal variables (**"association tests"**); or
+
+-   if there was a change in frequencies from sampling at one time to another (**"tests for paired nominal data"**).
+
+### **Converting among matrices, tables, counts, and cases**
+
+In R, most simple analyses for nominal data expect the data to be in [a matrix/table format]{.underline}. However, data may be in a long format, either with each row representing a single observation (*cases*), or with each row containing a count of observations (*counts*).
+
+It is relatively easy to convert among these different forms of data.
+
+```{r Converting data formats, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+# Format: Case 
+LongData <- read_xlsx("./Data/nominal_data.xlsx", sheet = "Sheet1")
+# Order factors by the order in data frame.
+LongData$Color <- factor(LongData$Color,
+                        levels = c("Red", "Yellow", "Blue"))
+LongData$Gender <- factor(LongData$Gender,
+                        levels = c("Male", "Female"))
+
+# Cases to table # ~ Tilde
+TableData <- xtabs( ~ Color + Gender, data = LongData)
+TableData
+
+TableData2 <- table(LongData)
+TableData2
+
+colSums(TableData)
+rowSums(TableData)
+prop.table(TableData, margin = 1) # Prop = Proportion, Rowwise
+prop.table(TableData, margin = 2) # Prop = Proportion, Columnwise
+
+# Table to Counts
+CountData <- as.data.frame(TableData)
+CountData
+
+# Counts to Table
+TableData3 <- xtabs(Freq ~ Color + Gender, data = CountData)
+TableData3
+
+# Counts to Cases
+LongData2 <- uncount(CountData, Freq)
+LongData2
+```
+
+### Data Visualization of Nominal Data
+
+```{r Plots with ggplot2, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+# Create the bar plot of counts of "Gender"
+
+
+# Create the bar plot of counts of "Color"
+
+
+#  Create a mosaic plot
+library(ggmosaic)
+
+
+```
+
+## ==== **Goodness-of-Fit Tests for Nominal Variables** ====
+
+Goodness-of-fit tests are used to compare proportions of levels of a nominal variable to theoretical proportions. Common goodness-of-fit tests are G-test and chi-square test. The advantage of chi-square tests is that your audience may be more familiar with them. G-tests are also called likelihood ratio tests, and "Likelihood Ratio Chi-Square".
+
+The results of chi-square test and G-test can be inaccurate if statistically expected cell counts are low. One option for a rule of thumb is that all statistically expected cell counts should be 5 or greater for chi-square test and G-test. Another option for a more detailed rule of thumb is that no more than 20% of the statistically expected counts are less than 5, and that all statistically expected counts are at least 1.
+
+**Appropriate data**
+
+-   A nominal variable with two or more levels
+
+-   Theoretical, typical, or neutral values for the proportions for this variable are needed for comparison.
+
+-   G-test and chi-square tests may not be appropriate if there are cells with low expected counts.
+
+-   Observations are independent of one another.
+
+**Hypotheses**
+
+-   Null hypothesis:  The proportions for the levels for the nominal variable are not different from the theoretical proportions.
+
+-   Alternative hypothesis (two-sided): The proportions for the levels for the nominal variable are different from the theoretical proportions.
+
+**Interpretation**
+
+Significant results can be reported as "The proportions for the levels for the nominal variable were statistically different from the theoretical proportions."
+
+```{r Goodness-of-Fit Tests, warning=TRUE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+# 1. Discrete uniform distribution
+# We collected wild tulips and found that 76 were red, 48 were yellow and 26 were white.
+# Are these colors equally common?
+tulip <- c(76, 48, 26)
+sum(tulip)
+
+# Chi-square test for goodness-of-fit
+
+
+# G-test for goodness-of-fit
+
+
+# 2. Specific distribution 
+# Suppose that, in the region where you collected the data, the ratio of red, yellow and white tulip is 3:2:1.
+# We want to know if there is any significant difference between the observed proportions and the expected proportions.
+
+# Chi-square test for goodness-of-fit
+
+
+# G-test for goodness-of-fit
+
+
+# 3. Race data
+# As part of a demographic survey of students in the environmental issues webinar series, Alucard recorded the race of his students.  
+# He wants to compare the data for his class to the demographic data for Cumberland County, New Jersey as a whole.
+observed    = c(20, 9, 9, 1, 1, 1)
+theoretical = c(0.775, 0.132, 0.012, 0.054, 0.002, 0.025)
+
+# Chi-square test 
+
+
+```
+
+## ==== **Association Tests for Nominal Variables** ====
+
+These tests for nominal variables are used to determine if two nominal variables are associated. Sometimes the term "independent" is used to mean that there is no association.
+
+In general, practically speaking, there are no assumptions about the distribution of data for these tests.
+
+For these tests of association there shouldn't be paired values. For example, if experimental units---the things you are counting---are "students before" and "students after", or "left hands" and "right hands", the *Tests for Paired Nominal Data* may be more appropriate.
+
+Also note that these tests will not be accurate if there are "structural zeros" in the contingency table. If you were counting pregnant and non-pregnant individuals across categories like male and female, the male--pregnant cell may contain a structural zero if you assume your population cannot have pregnant males.
+
+#### **Low cell counts**
+
+The results of chi-square tests and G-tests can be inaccurate if statistically expected cell counts are low. A rule of thumb for 2 x 2 tables is that all statistically expected counts should be 5 or greater for chi-square- and G-tests. For tables larger than 2 x 2, a rule of thumb is that no more than 20% of the statistically expected counts are less than 5, and that all statistically expected counts are at least 1.
+
+One approach when there are low statistically expected counts is to use exact tests, such as Fisher's exact test, which are not bothered by low cell counts. It is also possible to use Monte Carlo simulation.
+
+#### Continuity correction
+
+When counts in a contingency table are relatively small, it is helpful to apply a continuity correction to adjust the chi-square value and the corresponding *p*-value for the fact that the data are discrete and the chi-square distribution is continuous.
+
+The `chisq.test` function automatically applies the Yates's continuity correction for 2 x 2 tables (*correct=TRUE*). The `GTest` function in the `DescTools` package has options for Yates or Williams corrections.
+
+**Appropriate data**
+
+-   Two nominal variables with two or more levels each, often arranged into a contingency table.
+
+-   Experimental units aren't paired.
+
+-   There are no structural zeros in the contingency table.
+
+-   G-test and chi-square test may not be appropriate if there are cells with low expected counts.
+
+**Hypotheses**
+
+-   Null hypothesis: There is no association between the two variables.
+
+-   Alternative hypothesis (two-sided): There is an association between the two variables.
+
+**Interpretation**
+
+Significant results can be reported as "There was a significant association between variable A and variable B."
+
+```{r Test of Independence, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+housetasks <- read_xlsx("./Data/nominal_data.xlsx", sheet = "Sheet2")
+str(housetasks)
+class(housetasks)
+
+# 1. Graphical display of contingency table
+#  Create a mosaic plot
+housetasks_long <- pivot_longer(housetasks, names_to = "Who", values_to = "Freq", cols = -Task)
+housetasks_case <- uncount(housetasks_long, Freq)
+
+library(ggmosaic)
+
+
+# 2. Chi-square test of association
+# Chi-square test examines whether rows and columns of a contingency table are statistically significantly associated.
+
+# H0: the row and the column variables of the contingency table are independent.
+# H1: the row and the column variables are dependent
+
+
+
+# Pairwise tests of association
+library(rcompanion)
+pairwiseNominalIndependence(as.table(as.matrix(housetasks_tbl)), compare = "row",
+                            fisher  = FALSE,
+                            gtest   = FALSE,
+                            chisq   = TRUE,
+                            method  = "fdr",  # see ?p.adjust for options
+                            digits  = 3)
+
+# Airline Data
+airline <- read_xlsx("./Data/nominal_data.xlsx", sheet = "Sheet3")
+class(airline)
+
+airline_tbl <- airline[,2:3]
+row.names(airline_tbl) <- airline$Group
+class(airline_tbl)
+
+# Chi-square test
+
+
+
+# Manually calculate critical value
+
+
+# Another Data
+testmat <- matrix(c(22,66,30,50), byrow = T, nrow = 2)
+testmat
+
+# Chi-square test
+
+```
+
+## ==== Tests for Paired Nominal Data ====
+
+Tests of symmetric margins---or marginal homogeneity---for nominal data are used when the counts on a **contingency table** represent values that are paired or repeated in time.
+
+As an example, consider a question repeated on a **pre-test** and a **post-test**. We may want to know if the number of correct responses changed from the pre-test to the post-test.
+
+*Did students have the correct answer to the question?*
+
+|             | `After`   |             |
+|-------------|-----------|-------------|
+| `Before`    | `Correct` | `Incorrect` |
+| `Correct`   | `2`       | `0`         |
+| `Incorrect` | `21`      | `7`         |
+
+Note that the row names and column names have the same levels, and that counts represent paired responses. That is, [for each observation you must know the individual's response before and after]{.underline}. Also note that the number of students included in the table are 30, or the sum of the cell counts.
+
+In essence, those students with the same response before and after don't affect the assessment of the change in responses. We would focus on the "discordant" counts. That is, how many students had incorrect answers before and correct answers after, in contrast to those who had the reverse trend. Here, because 21 changed from incorrect to correct, and 0 changed from correct to incorrect, we might suspect that there was a significant change in responses from incorrect to correct.
+
+**Appropriate data**
+
+-   Two nominal variables with two or more levels each, and each with the same levels.
+
+-   Observations are paired or matched between the two variables.
+
+-   McNemar test may not be appropriate if discordant cells have low counts.
+
+**Hypotheses**
+
+-   Null hypothesis: The contingency table is symmetric. That is, the probability of cell [i, j] is equal to the probability of cell [j, i].
+
+-   Alternative hypothesis (two-sided): The contingency table is not symmetric.
+
+**Interpretation**
+
+Depending on the context, significant results can be reported as e.g. "There was an increase in correct answers from the pre-test to the post-test." Or, "There was a significant change from answer A to answer B."
+
+#### **McNemar and McNemar--Bowker tests**
+
+For a 2 x 2 table, the most common test for symmetry is McNemar's test. For larger tables, McNemar's test is generalized as the McNemar--Bowker symmetry test. One drawback of the latter test is that it may fail if there are 0's in certain locations in the matrix.
+
+McNemar's test may not be reliable if there are low counts in the "discordant" cells. It is recommend that these cells to sum to at least 5 or 10.
+
+```{r Tests for Paired Nominal Data, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 1: Create the data
+# Suppose researchers want to know if a certain marketing video can change people’s opinion of a particular law. # They survey 100 people to find out if they do or do not support the law. 
+# Then, they show all 100 people the marketing video and survey them again once the video is over.
+
+set.seed(345)
+before = rbinom(100, size = 1, prob = 0.2)
+before
+sum(before)
+after  = rbinom(100, size = 1, prob = 0.8)
+after
+sum(after)
+before.F <- factor(before, levels = c(0,1), labels = c("Negative","Positive"))
+after.F  <- factor(after, levels = c(0,1), labels = c("Negative","Positive"))
+law_support <- data.frame(Before = before.F, After = after.F) 
+
+# Step 2: Make a contingency table 
+law_support_tbl <- table(law_support)
+# law_support_tbl <- table(law_support$Before, law_support$After)
+law_support_tbl <- xtabs(~ Before + After, law_support)
+law_support_tbl
+
+# Step 3: Perform McNemar’s Test
+mcnemar.test(law_support_tbl)
+qchisq(0.05, 1, lower.tail = F)
+
+# The p-value of the test is less than 0.05, 
+# so we would reject the null hypothesis and conclude that 
+# the proportion of people who supported the law before and after watching 
+# the marketing video was statistically significant different.
+
+# ==== Pairwise comparisons between multiple groups ====
+
+# Alucard teaches a Master Gardener training on rain gardens for stormwater management.
+# He wishes to assess if people are more willing to install these green infrastructure practices after attending the training.
+# Note that there are 46 attendees answering the question and the counts in each table sum to 46.
+
+garden = as.matrix(read.table(header = TRUE, row.names = 1, text = "
+Before         Yes.after   No.after   Maybe.after
+Yes.before      6          0           1
+No.before       5          3           7
+Maybe.before   11          1          12
+"))
+
+mcnemar.test(garden)
+
+# Pairwise comparisons between groups
+
+library(rcompanion)
+pairwise.res <- nominalSymmetryTest(garden)
+pairwise.res$Pairwise.symmetry.tests
+pairwise.res$Global.test.for.symmetry
+# Conclusion
+# Looking at the post-hoc tests, we see that there was a significant change from “maybe” to “yes”.
+```
+
+## ==== **Comparing a test of symmetry with a test of association** ====
+
+Consider a survey of tea and coffee drinking, in which each respondent is asked both if they drink coffee, and if they drink tea.
+
+|          | `Tea` |      |
+|----------|-------|------|
+| `Coffee` | `Yes` | `No` |
+| `Yes`    | `37`  | `17` |
+| `No`     | `9`   | `25` |
+
+: We could use **a test of symmetry** in this case if the question we wanted to answer was, Is coffee more popular than tea? That is, is it more common for someone to drink coffee and not tea than to drink tea and not coffee? (Those who drink both or drink neither are not relevant to this question.)
+
+This is an example of using a test of symmetry to test the relative frequency of two dichotomous variables when the same subjects are surveyed.
+
+On the other hand, a **test of association** answers a very different question. Namely, Is coffee drinking associated with tea drinking?  That is, is someone more likely to drink tea if they drink coffee?
+
+```{r BE CAREFUL!!, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+Coffee.Tea = as.matrix(read.table(header = TRUE, row.names = 1, text = "
+Coffee   Yes   No
+Yes      37    17
+No        9    25
+"))
+
+# Test of symmetry 
+mcnemar.test(Coffee.Tea)
+# Conclusion
+# Neither coffee nor tea is more popular, specifically because neither the 9 nor the 17 in the table are large relative to the other.
+
+# Test of association
+chisq.test(Coffee.Tea)
+# Conclusion
+# Coffee drinking and tea drinking are associated, in this case people who drink coffee are likely to drink tea. This is a positive association.
+```
+
+End-of-File

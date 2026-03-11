@@ -1,0 +1,455 @@
+---
+title: "Random Forests and Boosting"
+author: "Pongsun B."
+date: "2026-02-25"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(mlr)){install.packages("mlr", dependencies = TRUE)}
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(mlbench)){install.packages("mlbench")}
+if(!require(randomForest)){install.packages("randomForest")}
+if(!require(xgboost)){install.packages("xgboost")}
+if(!require(DiagrammeR)){install.packages("DiagrammeR")}
+
+```
+
+An important limitation of decision trees is a tendency to overfit the training set. This results in models that generalize poorly to new data. As a result, individual decision trees are rarely used, but they can become extremely powerful predictors when many trees are combined together.
+
+We will learn the difference between ordinary decision trees and *ensemble* *methods*, such as *random forest* and *gradient boosting*, which combine multiple trees to make predictions. Finally, we will learn what benchmarking is and how to use it to find the best-performing algorithm for a particular problem. Benchmarking is the process of letting a bunch of different learning algorithms fight it out to select the one that performs best for a particular problem.
+
+### 1. Ensemble techniques: Bagging, boosting, and stacking
+
+Imagine that you wanted to know what a country’s views were on a particular issue. What would you consider to be a better barometer of public opinion: the opinion of a single person you ask on the street, or the collective vote of many people at the ballot box? In this scenario, the decision tree is the single person on the street. You create a single model, pass it new data, and ask its opinion as to what the predicted output should be. Ensemble methods, on the other hand, are the collective vote.
+
+The idea behind ensemble methods is that instead of training a single model, you train multiple models (sometimes hundreds or even thousands of models). Next, you ask the opinion of each of those models as to what the predicted output should be for new data. You then consider the votes from all the models when making the final prediction. The idea is that predictions informed by a majority vote will have less variance than predictions made by a lone model.
+
+There are three different ensemble methods:
+
+-   Bootstrap aggregating
+
+-   Boosting
+
+-   Stacking
+
+Let’s discuss each of these in more detail.
+
+#### 1.1 Training models on sampled data: Bootstrap aggregating
+
+Machine learning algorithms can be sensitive to noise resulting from outliers and measurement error. If noisy data exists in our training set, then our models are more likely to have high variance when making predictions on future data. How can we train a learner that makes use of all the data available to us, but can look past this noisy data and reduce prediction variance? The answer is to use **bootstrap aggregating** (or *bagging* for short).
+
+The premise of bagging is quite simple:
+
+1.  Decide how many sub-models you’re going to train.
+
+2.  For each sub-model, randomly sample cases from the training set, with replacement, until you have a sample the same size as the original training set.
+
+3.  Train a sub-model on each sample of cases.
+
+4.  Pass new data through each sub-model, and let them vote on the prediction.
+
+5.  The *modal* prediction (the most frequent prediction) from all the sub-models is used as the predicted output.
+
+The most critical part of bagging is the random sampling of the cases. Imagine that you’re playing Scrabble and have the bag of 100 letter tiles. Now imagine that you put your hand into the bag, blindly rummage around a little, pull out a tile, and write down what letter you got. This is taking a random sample. Then, crucially, you put the tile back. This is called *replacement*, and sampling with replacement simply means putting the values back after you’ve drawn them. This means the same value could be drawn again. You continue to do this until you have drawn 100 random samples, the same number as are in the bag to begin with. This process is called *bootstrapping* and is an important technique in statistics and machine learning. Your bootstrap sample of 100 tiles should do a reasonable job of reflecting the frequencies of each letter in the original bag.
+
+So why does training sub-models on bootstrap samples of the training set help us? Imagine that cases are distributed over their feature space. Each time we take a bootstrap sample, because we are sampling with replacement, we are more likely to select a case near the center of that distribution than a case that lies near the extremes of the distribution. Some of the bootstrap samples may contain many extreme values and make poor predictions on their own, but here’s the second crucial part of bagging: we *aggregate* the predictions of all these models. This simply means we let them all make their predictions and then take the majority vote. The effect of this is a sort of averaging out of all the models, which reduces the impact of noisy data and reduces overfitting. Bagging for decision trees is illustrated in **Figure 1**.
+
+![](images/clipboard-2968913244.png)
+
+**Figure 1:** Bootstrap aggregating (bagging) with decision trees. Multiple decision trees are learned in parallel, each one trained on a bootstrap sample of cases from the training set. When predicting new data, each tree makes a prediction, and the modal (most frequent) prediction wins.
+
+Bagging (and, as you’ll learn, boosting and stacking) is a technique that can be applied to any supervised machine learning algorithm. Having said this, it works best on algorithms that tend to create low-bias, high-variance models, such as decision trees. In fact, there is a famous and very popular implementation of bagging for decision trees called *random forest*. Why is it called random forest? Well, it uses many random samples from the training set to train a decision tree. What do many trees make? A forest!
+
+So the random forest algorithm uses bagging to create a large number of trees. These trees are saved as part of the model; when we pass the model new data, each tree makes its own prediction, and the modal prediction is returned. The random forest algorithm has one extra trick up its sleeve, however. At each node of a particular tree, the algorithm randomly selects a proportion of the predictor variables it will consider for that split. At the next node, the algorithm makes another random selection of predictor variables it will consider for that split, and so on. While this may seem counterintuitive, the result of randomly sampling cases *and* randomly sampling features is to create individual trees that are highly *uncorrelated*.
+
+```         
+NOTE: If some variables in the data are highly predictive of the outcome, then these variables will be selected as split criteria for many of the trees. Trees that contain the same splits as each other don’t contribute any more information. 
+This is why it’s desirable to have uncorrelated trees, so that different trees contribute different predictive information. Randomly sampling cases reduces the impact that noise and outlying cases have on the model.
+```
+
+#### 1.2 Learning from the previous models’ mistakes: Boosting
+
+With bagging, the individual models are trained in parallel. In contrast, boosting is an ensemble technique that, again, trains many individual models, but builds them sequentially. Each additional model seeks to correct the mistakes of the previous ensemble of models.
+
+Just like bagging, boosting can be applied to any supervised machine learning algorithm. However, boosting is most beneficial when using *weak learners* as the submodels. A *weak learner* is a model that only does a little better at making predictions than a random guess. For this reason, boosting has been traditionally applied to shallow decision trees. By *shallow*, I mean a decision tree that doesn’t have many levels of depth, or may have only a single split.
+
+```         
+NOTE: Decision trees with only one split are imaginatively called decision stumps.
+```
+
+The function of boosting is to combine many weak learners together to form one strong ensemble learner. The reason we use weak learners is that there is no improvement in model performance when boosting with strong learners versus weak learners. So why waste computational resources training hundreds of strong, probably more complex learners, when we can get the same performance by training weak, less complex ones?
+
+There are two methods of boosting, which differ in the way they correct the mistakes of the previous set of models:
+
+-   Adaptive boosting
+
+-   Gradient boosting
+
+##### WEIGHTING INCORRECTLY PREDICTED CASES: ADAPTIVE BOOSTING
+
+There is only one well-known *adaptive boosting* algorithm, which is the famous AdaBoost algorithm published in 1997. AdaBoost works as follows. Initially, all cases in the training set have the same importance, or *weight*. An initial model is trained on a bootstrap sample of the training set where the probability of a case being sampled is proportional to its weight (all equal at this point). The cases that this initial model incorrectly classifies are given more weight/importance, while cases that it correctly classifies are given less weight/importance.
+
+The next model takes another bootstrap sample from the training set, but the weights are no longer equal. Remember that the probability of a case being sampled is proportional to its weight. So, a case with twice as much weight as another case is twice as likely to be sampled (and more likely to be sampled repeatedly). This ensures that cases incorrectly classified by the previous model are more likely to be featured in the bootstrap for the subsequent model. The subsequent model is therefore more likely to learn rules that will correctly classify these cases.
+
+Once we have at least two models, the data are classified based on an aggregated vote, just like in bagging. Cases that are incorrectly classified by the majority vote are then given more weight, and cases that are correctly classified by the majority vote are given less weight. Perhaps slightly confusingly, the models themselves also have a weight. This model weight is based on how many mistakes a particular model makes (more mistakes, less weight). If you only have two models in an ensemble, one of which predicts group A and the other of which predicts group B, the model with the higher weight wins the vote.
+
+This process continues: a new model is added to the ensemble, all the models vote, weights are updated, and the next model samples the data based on the new weights. Once we reach the maximum number of predefined trees, the process stops, and we get our final ensemble model. This is illustrated in **Figure 2**. Think about the impact this is having: new models are correcting the mistakes of the previous set of models.
+
+This is why boosting is an excellent way of reducing bias. However, just like bagging, it also reduces variance, because we’re also taking bootstrap samples! When unseen cases are passed to the final model for prediction, each tree votes individually (like in bagging), but each vote is weighted by the model weight.
+
+![](images/clipboard-1911660148.png)
+
+**Figure 2:** Adaptive boosting with decision trees. An initial model is trained on a random sample of the training set. Correctly classified cases get lower weights, while incorrectly classified cases get higher weights (indicated by data point size). The probability of subsequent models sampling each case is proportional to the case’s weight. As trees are added, they vote to form an ensemble model, the predictions of which are used to update the weights at every iteration.
+
+![](images/Screenshot%202026-02-26%20at%2008.52.34.png){width="600"}
+
+##### LEARNING FROM THE PREVIOUS MODELS’ RESIDUALS: GRADIENT BOOSTING
+
+Gradient boosting is very similar to adaptive boosting, only differing in the way it corrects the mistakes of the previous models. Rather than weighting the cases differently depending on the accuracy of their classification, subsequent models try to predict the *residuals* of the previous ensemble of models.
+
+A *residual*, or residual error, is the difference between the true value (the “observed” value) and the value predicted by a model. This is easier to understand when thinking about predicting a continuous variable (regression). Imagine that you’re trying to predict how much debt a person has. If an individual has a real debt of \$2,500, but our model predicts they have a debt of \$2,100, the residual is \$400. It’s called a residual because it’s the error left over after the model has made its prediction.
+
+It’s a bit harder to think of a residual for a classification model, but we can quantify the residual error of a classification model as
+
+-   The proportion of all cases incorrectly classified
+
+-   The log loss
+
+The proportion of cases that were misclassified is pretty self-explanatory. The log loss is similar but more greatly penalizes a model that makes incorrect classifications confidently. If your friend tells you with “absolute certainty” that Helsinki is the capital of Sweden (it’s not), you’d think less of them than if they said they “think it might be” the capital. This is how log loss treats misclassification error. For either method, models that give the correct classifications will have a lower error than those that make lots of misclassifications. Which method is better? Once again it depends, so we’ll let hyperparameter tuning choose the best one.
+
+```         
+NOTE: Using the proportion of misclassified cases as the residual error tends to result in models that are a little more tolerant of a small number of misclassified cases than using the log loss. 
+These measures of residual error that are minimized at each iteration are called loss functions.
+```
+
+So, in gradient boosting, subsequent models are chosen that minimize the residual error of the previous ensemble of models. By minimizing the residual error, subsequent models will, in effect, favor the correct classification of cases that were previously misclassified (thereby modeling the residuals).
+
+![](images/Screenshot%202026-02-26%20at%2008.56.43.png){width="600"} ![](images/Screenshot%202026-02-26%20at%2008.56.53.png){width="600"}
+
+Gradient boosting doesn’t necessarily train sub-models on samples of the training set. If we choose to sample the training set, the process is called *stochastic gradient boosting* (*stochastic* just means “random,” but it is a good word to impress your friends with). Sampling in stochastic gradient descent is usually *without replacement*, which means it isn’t a bootstrap sample. We don’t need to replace each case during sampling because it’s not important to sample cases based on their weights (like in AdaBoost ) and there is little impact on performance. Just like for AdaBoost and random forest, it’s a good idea to sample the training set, because doing so reduces variance. The proportion of cases we sample from the training set can be tuned as a hyperparameter.
+
+There are a number of gradient boosting algorithms around, but probably the best known is the **XGBoost** (extreme gradient boosting) algorithm. Published in 2014, XGBoost is an extremely popular classification and regression algorithm. Its popularity is due to how well it performs on a wide range of tasks, as it tends to outperform most other supervised learning algorithms. Many Kaggle (an online community that runs machine learning competitions) data science competitions have been won using XGBoost, and it has become the supervised learning algorithm many data scientists try before anything else.
+
+While XGBoost is an implementation of gradient boosting, it has a few tricks up its sleeve:
+
+-   It can build different branches of each tree *in parallel*, speeding up model building.
+
+-   It can handle missing data.
+
+-   It employs *regularization* to prevent individual predictors from having too large of an impact on predictions (this helps to prevent overfitting).
+
+#### 1.3 Learning from predictions made by other models: Stacking
+
+Stacking is an ensemble technique that, while valuable, isn’t as commonly used as bagging and boosting. For this reason, I won’t discuss it in a lot of detail, but if you’re interested in learning more, I recommend Ensemble Methods: Foundations and Algorithms by Zhi-Hua Zhou (Chapman and Hall/CRC, 2012).
+
+In bagging and boosting, the learners are often (but don’t always have to be) homogeneous. Put another way, all of the sub-models were learned by the same algorithm (decision trees). Stacking explicitly uses different algorithms to learn the sub-models. For example, we may choose to use the kNN algorithm, logistic regression algorithm, and the SVM algorithm to build three independent *base models*.
+
+The idea behind stacking is that we create base models that are good at learning different patterns in the feature space. One model may then be good at predicting in one area of the feature space but makes mistakes in another area. One of the other models may do a good job of predicting values in an area of the feature space where the others do poorly. So here’s the key in stacking: the predictions made by the base models are used as predictor variables (along with all the original predictors) by another model: the *stacked model*. This stacked model is then able to learn from the predictions made by the base models to make more accurate predictions of its own. Stacking can be tedious and complicated to implement, but it usually results in improved model performance if you use base learners that are different enough from each other.
+
+```         
+NOTE: Ensemble methods like bagging, boosting, and stacking are not strictly machine learning algorithms in their own right. They are algorithms that can be applied to other machine learning algorithms. 
+For example, I’ve described bagging and boosting here as being applied to decision trees. This is because ensembling is most commonly applied to tree-based learners; but we could just as easily apply bagging and boosting to other machine learning algorithms, such as kNN and linear regression.
+```
+
+### 2. Building your first random forest model
+
+In this section, I’ll show you how to build a random forest model (using bootstrappingto train many trees and aggregating their predictions) and how to tune its hyperparameters.There are four important hyperparameters for us to consider:
+
+-   `ntree`: The number of individual trees in the forest
+
+-   `mtry`: The number of features to randomly sample at each node
+
+-   `nodesize`: The minimum number of cases allowed in a leaf (the same as minbucket in rpart)
+
+-   `maxnodes`: The maximum number of leaves allowed
+
+Because we’re aggregating the votes of many trees in random forest, the more trees we have, the better. There is no downside to having more trees aside from computational cost: at some point, we get diminishing returns. Rather than tuning this value, I usually fix it to a number of trees I know fits my computational budget, generally several hundred to the low thousands. Later in this section, I’ll show you how to tell if you’ve used enough trees, or if you can reduce your tree number to speed up training times.
+
+The other three hyperparameters—`mtry`, `nodesize`, and `maxnodes`—will need tuning, though, so let’s get started. We’ll continue with our `zooTask` that we defined before. The first thing to do is create a learner ith the `makeLearner()` function. This time, our learner is `"classif.randomForest"`.
+
+Next, we’ll create the hyperparameter space we’re going to tune over. To begin with, we want to fix the number of trees at 300, so we simply specify `lower = 300` and `upper = 300` in its `makeIntegerParam()` call. We have 16 predictor variables in our dataset, so let’s search for an optimal value of `mtry` between 6 and 12. Because some of our groups are very small (probably too small), we’ll need to allow our leaves to have a small number of cases in them, so we’ll tune `nodesize` between 1 and 5. Finally, we don’t want to constrain the tree size too much, so we’ll search for a `maxnodes` value between 5 and 20.
+
+```{r Tuning the random forest hyperparameters, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+load("DecisionTree.RData")
+
+forest <- mlr::makeLearner("classif.randomForest")
+
+forestParamSpace <- makeParamSet(
+  makeIntegerParam("ntree", lower = 300, upper = 300),
+  makeIntegerParam("mtry", lower = 6, upper = 12),
+  makeIntegerParam("nodesize", lower = 1, upper = 5),
+  makeIntegerParam("maxnodes", lower = 5, upper = 20))
+
+randSearch <- makeTuneControlRandom(maxit = 200)
+
+cvForTuning <- makeResampleDesc("CV", iters = 5)
+
+library(parallelMap)
+library(parallel)
+
+parallelStartSocket(cpus = detectCores())
+
+tunedForestPars <- tuneParams(forest, task = zooTask,
+                              resampling = cvForTuning,
+                              par.set = forestParamSpace,
+                              control = randSearch)
+
+parallelStop()
+
+tunedForestPars
+
+```
+
+Now let’s train a final model by using `setHyperPars()` to make a learner with our tuned hyperparameters, and then passing it to the `train()` function.
+
+How do we know if we’ve included enough trees in our forest? We can plot the mean *out-of-bag* error against the tree number. When building a random forest, remember that we take a bootstrap sample of cases for each tree. The out-of-bag error is the mean prediction error for each case, by trees that [did not]{.underline} include that case in their bootstrap. Out-of-bag error estimation is specific to algorithms that use bagging and allows us to estimate the performance of the forest as it grows.
+
+The first thing we need to do is extract the model information using the `getLearnerModel()` function. Then we can simply call `plot()` on this model data object (specifying what colors and linetypes to use for each class). Let’s add a legend using the `legend()` function so we know what we’re looking at.
+
+```{r Plotting the out-of-bag error, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+tunedForest <- setHyperPars(forest, par.vals = tunedForestPars$x)
+
+tunedForestModel <- train(tunedForest, zooTask)
+
+forestModelData <- getLearnerModel(tunedForestModel)
+
+# forestModelData$err.rate
+
+species <- colnames(forestModelData$err.rate)
+
+plot(forestModelData, 
+     col = 1:length(species), 
+     lty = 1:length(species))
+
+legend("topright", 
+       species, 
+       col = 1:length(species),
+       lty = 1:length(species))
+
+```
+
+For a given forest size during training, the mean out-of-bag error is plotted on the y-axis for each class (different lines) and for the overall out of bag (OOB) error. The out-of-bag error is the mean prediction error for each case, by trees that did not include that case in their bootstrap sample. The y-axis shows the mean out-of-bag error across all cases.
+
+The plot shows the mean out-of-bag error for each class (separate lines and a line for the mean) against different numbers of trees in the forest. Can you see that once we have at least 100 trees in the forest, our error estimates stabilize? This indicates that we have enough trees in our forest (and could even use fewer). If you train a model and the mean out-of-bag error doesn’t stabilize, you should add more trees!
+
+Okay, so we’re happy there are enough trees in our forest. Now let’s properly cross-validate our model-building procedure, including hyperparameter tuning. We’ll start by defining our outer cross-validation strategy as ordinary 5-fold cross-validation.
+
+```{r Cross-validating the model-building process, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+outer <- makeResampleDesc("CV", iters = 5)
+
+forestWrapper <- makeTuneWrapper("classif.randomForest",
+                                 resampling = cvForTuning,
+                                 par.set = forestParamSpace,
+                                 control = randSearch)
+
+parallelStartSocket(cpus = detectCores())
+
+cvWithTuning <- resample(forestWrapper, 
+                         task = zooTask, 
+                         resampling = outer)
+
+parallelStop()
+
+cvWithTuning
+
+```
+
+Bagging has greatly improved our classification accuracy. Next, let’s see if XGBoost can do even better.
+
+### 3. Building your first XGBoost model
+
+In this section, I’ll show you how to build an XGBoost model and how to tune itshyperparameters. There are eight important hyperparameters for us to consider:
+
+-   `eta`: Known as the *learning rate*. This is a number between 0 and 1, which model weights are multiplied by to give their final weight. Setting this value below 1 slows down the learning process because it “shrinks” the improvements made by each additional model. Preventing the ensemble from learning too quickly prevents overfitting. A low value is generally better but will make model training take much longer because many model sub-models are needed to achieve good prediction accuracy.
+
+-   `gamma`: The minimum amount of splitting by which a node must improve the predictions. Similar to the `cp` value we tuned for `rpart`.
+
+-   `max_depth`: The maximum levels deep that each tree can grow.
+
+-   `min_child_weight`: The minimum degree of impurity needed in a node before attempting to split it (if a node is pure enough, don’t try to split it again).
+
+-   `subsample`: The proportion of cases to be randomly sampled (without replacement) for each tree. Setting this to 1 uses all the cases in the training set.
+
+-   `colsample_bytree`: The proportion of predictor variables sampled for each tree. We could also tune `colsample_bylevel` and `colsample_bynode`, which instead sample predictors for each level of depth in a tree and at each node, respectively.
+
+-   `nrounds`: The number of sequentially built trees in the model.
+
+-   `eval_metric`: The type of residual error/loss function we’re going to use. For multiclass classification, this will either be the proportion of cases that were incorrectly classified (called *merror* by XGBoost) or the log loss (called *mlogloss* by XGBoost).
+
+The first thing to do is create a learner with the `makeLearner()` function. This time,our learner is `"classif.xgboost"`.
+
+Irritatingly, XGBoost only likes to play with numerical predictor variables. Our predictors are currently factors, so we’ll need to mutate them into numerics and then define a new task with this mutated tibble. I’ve used the `mutate_at()` function to convert all the variables except type by setting `.vars = vars(-type)` into numerics by setting `.funs = as.numeric`.
+
+```{r Cross-validating the model-building process (RF), warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+xgb <- makeLearner("classif.xgboost")
+
+zooXgb <- mutate_at(zooTib, 
+                    .vars = vars(-type), 
+                    .funs = as.numeric)
+
+xgbTask <- makeClassifTask(data = zooXgb, target = "type")
+
+```
+
+In our example, it doesn’t make a difference that our predictors are all numeric. This is because most of our predictors are binary except `legs`, which makes sense as a numeric variable. However, if we have a factor with many discrete levels, does it make sense to treat it as numeric? In theory, no; but in practice, it can work quite well. We simply recode each level of the factor as an arbitrary integer and let the decision tree find the best split for us. This is called *numerical encoding* (and is what we’ve done to the variables in our dataset). You may have heard of another method of encoding categorical features called *one-hot encoding*. While I won’t discuss one-hot encoding here, I want to mention that [one-hot encoding factors for tree-based models often results in poor performance]{.underline}.
+
+Now we can define our hyperparameter space for tuning.
+
+```{r Tuning XGBoost hyperparameters, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+getParamSet(xgb)
+
+xgbParamSpace <- makeParamSet(
+  makeNumericParam("eta", lower = 0, upper = 1),
+  makeNumericParam("gamma", lower = 0, upper = 5),
+  makeIntegerParam("max_depth", lower = 1, 5),
+  makeNumericParam("min_child_weight", lower = 1, upper = 10),
+  makeNumericParam("subsample", lower = 0.5, upper = 1),
+  makeNumericParam("colsample_bytree", lower = 0.5, upper = 1),
+  makeIntegerParam("nrounds", lower = 10, upper = 50),
+  makeDiscreteParam("eval_metric", values = c("merror", "mlogloss")))
+
+randSearch <- makeTuneControlRandom(maxit = 1000)
+
+cvForTuning <- makeResampleDesc("CV", iters = 5)
+
+tunedXgbPars <- tuneParams(xgb, 
+                           task = xgbTask,
+                           resampling = cvForTuning, 
+                           par.set = xgbParamSpace, 
+                           control = randSearch)
+
+tunedXgbPars
+
+```
+
+Because more trees are usually better until we stop seeing a benefit, I don’t usually tune the `nrounds` hyperparameter but set it based on my computational budget to start with (here I’ve set it to 30 by making the `lower` and `upper` arguments the same). Once we’ve built the model, we can check if the error flattens out after a certain number of trees and decide if we need more or can use fewer (just like we did for the random forest model).
+
+Once we’ve defined our hyperparameter space, we define our search method as a random search with 1,000 iterations. I like to set the number of iterations as high as I can, especially as we’re tuning so many hyperparameters simultaneously. We define our cross-validation strategy as ordinary 5-fold cross-validation and then run the tuning procedure. Because XGBoost will use all of our cores to parallelize the building of each tree (take a look at your CPU usage during hyperparameter tuning), we won’t parallelize the tuning procedure as well.
+
+Now let’s train our final XGBoost model using our tuned hyperparameters. You should be starting to get familiar with this now. We first use `setHyperPars()` to make a learner, and then pass it to the `train()` function.
+
+Also, let’s plot the *loss function* against the iteration number to get an idea of whether we included enough trees. First, we extract the model data using `getLearnerModel()`. Next, we can extract a data frame containing the loss function data for each iteration with the `$evaluation_log` component of the model data. This contains the columns `iter` (iteration number) and `train_mlogloss` (the log loss for that iteration). We can plot these against each other to see if the loss has flattened out (indicating that we have trained enough trees).
+
+```         
+NOTE: My hyperparameter tuning selected "log loss" as the best loss function. If yours selected "classification error", you will need to use $train_merror here instead of $train_mlogloss.
+```
+
+```{r Plotting iteration number against log loss or classification error, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# TRAINING FINAL MODEL WITH TUNED HYPERPARAMETERS
+tunedXgb <- setHyperPars(xgb, par.vals = tunedXgbPars$x)
+
+tunedXgbModel <- train(tunedXgb, xgbTask)
+
+# PLOTTING LOSS AND TREE STRUCTURE
+xgbModelData <- getLearnerModel(tunedXgbModel)
+
+evaluation_log <- as.data.frame(attributes(xgbModelData)$evaluation_log)
+
+evaluation_log
+
+# ggplot(evaluation_log, aes(iter, train_merror)) +
+#   geom_line() +
+#   geom_point() +
+#   theme_bw()
+
+```
+
+It’s also possible to plot the individual trees in the ensemble, which is a nice way of interpreting the model-building process (unless you have a huge number of trees). For this, we need to install the DiagrammeR package first and then pass the model data object as an argument to the XGBoost package function `xgb.plot.tree()`. We can also specify which trees to plot with the `trees` argument.
+
+```{r Plotting individual decision trees, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+xgboost::xgb.plot.tree(model = xgbModelData, trees = 1:5)
+xgboost::xgb.plot.multi.trees(xgbModelData)
+
+```
+
+I won’t discuss the information shown in each node, but for a better understanding you can run `?xgboost::xgb.plot.tree`. You can also represent the final ensemble as a single tree structure by using `xgboost::xgb.plot.multi.trees(xgbModelData)`. This helps you to interpret your model as a whole.
+
+Finally, let’s cross-validate our model-building process exactly as we did for our `random forest` and `rpart` models.
+
+```{r Cross-validating the model-building process (XGB), message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+outer <- makeResampleDesc("CV", iters = 3)
+
+xgbWrapper <- makeTuneWrapper("classif.xgboost", 
+                              resampling = cvForTuning,
+                              par.set = xgbParamSpace, 
+                              control = randSearch) 
+
+cvWithTuning <- resample(xgbWrapper, 
+                         task = xgbTask, 
+                         resampling = outer)
+
+cvWithTuning
+
+```
+
+### 4. Strengths and weaknesses of tree-based algorithms
+
+While it often isn’t easy to tell which algorithms will perform well for a given task, here are some strengths and weaknesses that will help you decide whether random forest or XGBoost will perform well for you.
+
+The strengths of the random forest and XGBoost algorithms are as follows:
+
+-   They can handle categorical and continuous predictor variables (though XGBoost requires some numerical encoding).
+
+-   They make no assumptions about the distribution of the predictor variables.
+
+-   They can handle missing values in sensible ways.
+
+-   They can handle continuous variables on different scales.
+
+-   Ensemble techniques can drastically improve model performance over individual trees. XGBoost in particular is excellent at reducing both bias and variance.
+
+The weaknesses of tree-based algorithms are these:
+
+-   Random forest reduces variance compared to `rpart` but does not reduce bias (XGBoost reduces both).
+
+-   XGBoost can be computationally expensive to tune because it has many hyperparameters and grows trees sequentially.
+
+### 5. Benchmarking algorithms against each other
+
+In this section, I’ll teach you what *benchmarking* is, and we’ll use it to compare the performance of several algorithms on a particular task. The classification drawer of your toolbox has lots of algorithms in it now! Experience is a great way to choose an algorithm for a particular task. But remember, we are always subject to the “no free lunch” theorem. You may find yourself surprised sometimes that a simpler algorithm outperforms a more complex one for a particular task. A good way of deciding which algorithm will perform best on a particular task is to perform a *benchmarking* experiment.
+
+Benchmarking is simple. You create a list of learners you’re interested in trying, and let them fight it out to find the one that learns the best-performing model. Let’s do this with `xgbTask`.
+
+First, we create a list of learner algorithms including k-nearest neighbors (`"classif.knn"`), support vector machine (`"classif.svm"`), our tunedTree model that we previously trained and the tunedForest and tunedXgb models that we just trained.
+
+```         
+NOTE: This isn’t quite a fair comparison, because the first three learners will be trained using default hyperparameters, whereas the tree-based models have been tuned.
+```
+
+We define our cross-validation method using `makeResampleDesc()`. This time, I’ve opted for 10-fold cross-validation repeated 5 times. It’s important to note that `mlr` is clever here: while the data is partitioned randomly into folds for each repeat, the same partitioning is used for every learner. Put more plainly, for each cross-validation repeat, each learner in the benchmark gets exactly the same training set and test set.
+
+Finally, we use the `benchmark()` function to run the benchmark experiment. The first argument is the list of learners, the second argument is the name of the task, and the third argument is the cross-validation method.
+
+```{r Benchmarking algorithms against each other, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+learners = list(makeLearner("classif.knn"),
+                makeLearner("classif.svm"),
+                tunedTree,
+                tunedForest,
+                tunedXgb)
+
+benchCV <- makeResampleDesc("RepCV", folds = 10, reps = 5)
+
+bench <- benchmark(learners, xgbTask, benchCV)
+bench
+
+```
+
+What did I tell you about no free lunches? The humble k-nearest neighbors is performing better on this task than the mighty XGBoost algorithm—even though we didn’t tune it!
+
+End-of-file
+
+2026-02-25
