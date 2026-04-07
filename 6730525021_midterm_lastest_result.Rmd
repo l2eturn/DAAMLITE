@@ -1,0 +1,551 @@
+---
+title: 'Data Analytics and ML: Midterm Exam'
+author: "Pongsun B."
+date: "2026-03-11"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(ggbeeswarm)){install.packages("ggbeeswarm", dependencies = TRUE)}
+if(!require(moments)){install.packages("moments")}
+if(!require(corrplot)){install.packages("corrplot")}
+if(!require(mlr)){install.packages("mlr", dependencies = TRUE)}
+if(!require(caret)){install.packages("caret")}
+if(!require(mlbench)){install.packages("mlbench")}
+if(!require(rpart.plot)){install.packages("rpart.plot")}
+if(!require(kernlab)){install.packages("kernlab")}
+if(!require(FSelectorRcpp)){install.packages("FSelectorRcpp")}
+
+library(tidyverse)
+library(ggbeeswarm)
+library(moments)
+library(corrplot)
+library(mlr)
+library(caret)
+library(mlbench)
+library(rpart.plot)
+library(kernlab)
+library(FSelectorRcpp)
+library(parallelMap)
+library(parallel)
+library(randomForest)
+```
+
+# Optimize the Loan Eligibility Process
+
+Dream Housing Finance company deals in all kinds of home loans...
+
+## Data Dictionary
+
+...
+
+```{r Getting and Exploring the Data, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+myURL = "https://www.dropbox.com/scl/fi/wn5ow4zvgg4p4odfbor51/LoanPrediction.csv?rlkey=mludfatyg87sgz8374i0h8kfa&st=6kivxmtg&dl=1"
+
+myData = as_tibble(read_csv(myURL, na = c("", " ", NA), show_col_types = FALSE))
+myData
+
+mlr::summarizeColumns(myData)
+```
+
+## Data Manipulation
+
+```{r Data Manipulation, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 1
+myData <- myData |>
+  mutate(across(where(is.character) & !matches("Loan_ID"), as.factor))
+
+myData <- myData |>
+  mutate(Credit_History = factor(Credit_History, levels = c(0, 1), labels = c("No", "Yes")))
+
+# Step 2
+need_check = c("LoanAmount", "ApplicantIncome", "CoapplicantIncome")
+
+skewness_values <- sapply(myData[, need_check], moments::skewness, na.rm = TRUE)
+print(skewness_values)
+
+myData |>
+  select(all_of(need_check)) |>
+  pivot_longer(cols = everything(), names_to = "Variable", values_to = "Value") |>
+  ggplot(aes(x = Value, fill = Variable)) +
+  geom_histogram(bins = 30, color = "white") +
+  facet_grid(. ~ Variable, scales = "free_x") +
+  labs(x = "Value", y = "count") +
+  theme_bw()
+
+# Shapiro-Wilk normality test
+lapply(myData[, need_check], function(x) shapiro.test(na.omit(x)))
+```
+
+## Missing Value Imputation
+
+```{r Missing Value Imputation, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Impute missing values by mean and mode
+myData_imp <- mlr::impute(myData, 
+                     classes = list(factor = imputeMode(), 
+                                    numeric = imputeMean()))
+
+myData_imputed <- myData_imp$data
+
+myData_imputed$Loan_ID <- NULL
+
+mlr::summarizeColumns(myData_imputed[,1:12])
+```
+
+## Feature Engineering
+
+```{r Feature Engineering, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+myData_trim <- myData_imputed |> 
+  capLargeValues(target = "Loan_Status", cols = c("ApplicantIncome"), threshold = 40000) |> 
+  capLargeValues(target = "Loan_Status", cols = c("CoapplicantIncome"), threshold = 21000) |> 
+  capLargeValues(target = "Loan_Status", cols = c("LoanAmount"), threshold = 520)
+
+# Step 3: Create new features
+myData_added <- myData_trim |>
+  mutate(
+    Total_Income        = ApplicantIncome + CoapplicantIncome,
+    Loan_by_Income      = LoanAmount / Total_Income,
+    Loan_Amount_by_Term = LoanAmount / Loan_Amount_Term
+  )
+
+myData_corr <- myData_added |> select(where(is.numeric))
+
+cor_matrix <- cor(myData_corr, use = "complete.obs")
+
+corrplot(cor_matrix,
+         method  = "number",
+         type    = "upper",
+         diag    = FALSE,
+         number.cex = 0.7,
+         tl.cex  = 0.8,
+         addCoef.col = "black",
+         number.digits = 2)
+
+myData_final <- myData_added |> 
+  select(-Total_Income) |> 
+  mutate(Loan_ID = myData$Loan_ID)
+```
+
+## Data Visualization
+
+```{r Data Visualization, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 4
+
+long_data_cat <- myData_final |>
+  select(Loan_ID, where(is.factor)) |> 
+  mutate_at(.vars = vars(-Loan_ID, -Loan_Status),
+            .funs = as.integer) |>
+  pivot_longer(names_to  = "Variable",
+               values_to = "Value",
+               -c(Loan_ID, Loan_Status))
+
+long_data_cat |>
+  ggplot(aes(x = Value, fill = Loan_Status)) +
+  geom_bar(position = "fill") +
+  facet_wrap(~ Variable, scales = "free_x") +
+  labs(y = "count") +
+  theme_bw()
+
+long_data_num <- myData_final |>
+  select(Loan_ID, Loan_Status, where(is.numeric)) |>
+  pivot_longer(names_to  = "Variable",
+               values_to = "Value",
+               -c(Loan_ID, Loan_Status))
+
+long_data_num |>
+  ggplot(aes(x = Loan_Status, y = Value, fill = Loan_Status)) +
+  geom_boxplot(outlier.colour = "red", outlier.shape = 16) +
+  facet_wrap(~ Variable, scales = "free_y") +
+  theme_bw() +
+  theme(legend.position = "none") +
+  labs(x = "Loan_Status", y = "Value")
+```
+
+## Hypothesis Testing
+
+```{r Hypothesis Testing, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 5
+
+chi_results <- long_data_cat |>
+  split(f = long_data_cat$Variable) |>
+  lapply(function(df) chisq.test(table(df$Value, df$Loan_Status)))
+
+cat("Chi-Square p-values:\n")
+sapply(chi_results, function(x) x$p.value)
+
+kw_results <- long_data_num |>
+  split(f = long_data_num$Variable) |>
+  lapply(function(df) kruskal.test(Value ~ Loan_Status, data = df))
+
+cat("\nKruskal-Wallis p-values:\n")
+sapply(kw_results, function(x) x$p.value)
+```
+
+## Create the Task
+
+```{r Create a Task, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+myData_train <- myData_final |>
+  select(-Loan_ID)
+
+myTask <- makeClassifTask(data = myData_train, target = "Loan_Status")
+myTask <- normalizeFeatures(myTask)
+str(getTaskData(myTask))
+```
+
+## Discriminant Analysis
+
+```{r Discriminant Analysis, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# ── LDA ─────────────────────────────────────────────────────────────────────
+lda <- makeLearner("classif.lda", predict.type = "response")
+lda_model <- mlr::train(lda, myTask)
+lda_raw  <- getLearnerModel(lda_model)
+
+
+lda_scores <- data.frame(
+  LD1         = as.numeric(predict(lda_raw, newdata = as.data.frame(getTaskData(myTask)))$x[, 1]),
+  Loan_Status = getTaskData(myTask)$Loan_Status
+)
+
+ggplot(lda_scores, aes(x = Loan_Status, y = LD1, fill = Loan_Status)) +
+  geom_violin(alpha = 0.5) +
+  geom_beeswarm(size = 0.8, alpha = 0.6) +
+  theme_bw() +
+  labs(title = "LDA: LD1 separation by Loan Status")
+
+# 10-fold Repeated CV
+cv_desc <- makeResampleDesc("RepCV", folds = 10, reps = 50)
+
+lda_cv   <- resample(lda, myTask, resampling = cv_desc,
+                     measures = list(acc, mmce), show.info = FALSE)
+
+mlr::calculateConfusionMatrix(lda_cv$pred, relative = TRUE)
+caret::confusionMatrix(
+  data      = lda_cv$pred$data$response,
+  reference = lda_cv$pred$data$truth,
+  positive  = "Y"
+)
+
+# QDA
+qda <- makeLearner("classif.qda", predict.type = "response")
+
+qda_cv <- resample(qda, myTask, resampling = cv_desc,
+                   measures = list(acc, mmce), show.info = FALSE)
+
+mlr::calculateConfusionMatrix(qda_cv$pred, relative = TRUE)
+
+caret::confusionMatrix(
+  data      = qda_cv$pred$data$response,
+  reference = qda_cv$pred$data$truth,
+  positive  = "Y"
+)
+```
+
+## Support Vector Machines
+
+```{r Support Vector Machines, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+library(mlr)
+library(ggplot2)
+library(parallelMap)
+
+
+parallelStartSocket(cpus = parallel::detectCores() - 1)
+
+svm <- makeLearner("classif.svm", predict.type = "response")
+
+
+svmParamSpace <- makeParamSet(
+  makeNumericParam("cost",  lower = 0.1, upper = 10),
+  makeNumericParam("gamma", lower = 0.1, upper = 10)
+)
+
+
+randControl  <- makeTuneControlRandom(maxit = 50)
+holdout_desc <- makeResampleDesc("Holdout", split = 0.8)
+
+set.seed(42)
+svm_rand_tune <- tuneParams(
+  learner    = svm,
+  task       = myTask,
+  resampling = holdout_desc,
+  par.set    = svmParamSpace,
+  control    = randControl
+)
+
+cat("Random Search Results:\n")
+print(svm_rand_tune)
+
+
+gridControl <- makeTuneControlGrid(resolution = 10)
+
+set.seed(42)
+svm_grid_tune <- tuneParams(
+  learner    = svm,
+  task       = myTask,
+  resampling = holdout_desc,
+  par.set    = svmParamSpace,
+  control    = gridControl
+)
+
+cat("\nGrid Search Results:\n")
+print(svm_grid_tune)
+
+svm_wrapper <- makeTuneWrapper(
+  learner    = svm,
+  resampling = holdout_desc,
+  par.set    = svmParamSpace,
+  control    = randControl,
+  show.info  = FALSE
+)
+
+outer_cv <- makeResampleDesc("CV", iters = 5)
+
+set.seed(42)
+svm_nested_cv <- resample(svm_wrapper, myTask, 
+                          resampling = outer_cv,
+                          measures = list(acc, mmce), 
+                          show.info = FALSE)
+print(svm_nested_cv)
+
+svm_tuned <- setHyperPars(svm,
+                          cost  = svm_grid_tune$x$cost,
+                          gamma = svm_grid_tune$x$gamma)
+
+svm_model <- mlr::train(svm_tuned, myTask)
+
+parallelStop()
+```
+
+## Decision Tree
+
+```{r Decision Tree, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+library(mlr)
+library(parallelMap)
+library(rpart.plot)
+
+tree <- makeLearner("classif.rpart", predict.type = "response")
+
+# Defining the hyperparameter space
+treeParamSpace <- makeParamSet(
+  makeIntegerParam("minsplit",  lower = 5,    upper = 20),
+  makeIntegerParam("minbucket", lower = 3,    upper = 10),
+  makeNumericParam("cp",        lower = 0.01, upper = 0.1),
+  makeIntegerParam("maxdepth",  lower = 3,    upper = 10)
+)
+
+
+cv5_desc     <- makeResampleDesc("CV", iters = 5)
+treeControl  <- makeTuneControlRandom(maxit = 50) 
+
+parallelStartSocket(cpus = parallel::detectCores() - 1)
+
+set.seed(42)
+tree_tune <- tuneParams(
+  learner    = tree,
+  task       = myTask,
+  resampling = cv5_desc,
+  par.set    = treeParamSpace,
+  control    = treeControl
+)
+
+parallelStop()
+
+# ── Nested CV ────────────────────────────────────────────────────────────────
+tree_wrapper <- makeTuneWrapper(
+  learner    = tree,
+  resampling = cv5_desc,
+  par.set    = treeParamSpace,
+  control    = treeControl,
+  show.info  = FALSE
+)
+
+set.seed(42)
+tree_nested_cv <- resample(tree_wrapper, myTask,
+                           resampling = makeResampleDesc("CV", iters = 5),
+                           measures   = list(acc, mmce), show.info = FALSE)
+
+# ── Train final tree ─────────────────────────────────────────────────────────
+tree_tuned <- setHyperPars(tree, par.vals = tree_tune$x)
+
+tree_model      <- mlr::train(tree_tuned, myTask)
+tree_model_data <- getLearnerModel(tree_model)
+
+rpart.plot(tree_model_data, 
+           type = 5, 
+           box.palette = "BuGn", 
+           fallen.leaves = TRUE,
+           tweak = 1.2,
+           cex = 0.7,      
+           roundint = FALSE)
+
+# Complexity parameter table
+printcp(tree_model_data)
+```
+
+## Random Forest
+
+```{r Random Forest, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+forest <- mlr::makeLearner("classif.randomForest")
+
+
+forestParamSpace <- makeParamSet(
+  makeIntegerParam("ntree",    lower = 30, upper = 30),
+  makeIntegerParam("mtry",     lower = 6,  upper = 12),
+  makeIntegerParam("nodesize", lower = 1,  upper = 5),
+  makeIntegerParam("maxnodes", lower = 5,  upper = 20)
+)
+
+
+forestControl <- makeTuneControlRandom(maxit = 100)
+
+parallelStartSocket(cpus = detectCores() - 1)
+
+set.seed(42)
+forest_tune <- tuneParams(
+  learner    = forest,
+  task       = myTask,
+  resampling = cv5_desc,
+  par.set    = forestParamSpace,
+  control    = forestControl
+)
+
+parallelStop()
+
+# ── Nested CV 
+forest_wrapper <- makeTuneWrapper(
+  learner    = forest,
+  resampling = cv5_desc,
+  par.set    = forestParamSpace,
+  control    = forestControl,
+  show.info  = FALSE
+)
+
+set.seed(42)
+forest_nested_cv <- resample(forest_wrapper, myTask,
+                              resampling = makeResampleDesc("CV", iters = 5),
+                              measures   = list(acc, mmce), show.info = FALSE)
+forest_nested_cv
+
+# ── Train final forest
+forest_tuned <- setHyperPars(forest,
+                              ntree    = forest_tune$x$ntree,
+                              mtry     = forest_tune$x$mtry,
+                              nodesize = forest_tune$x$nodesize,
+                              maxnodes = forest_tune$x$maxnodes)
+
+forest_model      <- mlr::train(forest_tuned, myTask)
+forest_model_data <- getLearnerModel(forest_model)
+
+# ── OOB error plot
+oob_error <- forest_model_data$err.rate
+n_classes <- ncol(oob_error) - 1  # number of class columns
+
+plot(oob_error[, "OOB"],
+     type  = "l",
+     ylim  = c(0, max(oob_error, na.rm = TRUE)),
+     xlab  = "Number of Trees",
+     ylab  = "Error Rate",
+     main  = "OOB Error Rate",
+     col   = 1)
+
+colors_cls <- 2:(n_classes + 1)
+for (i in seq_len(n_classes)) {
+  lines(oob_error[, i + 1], col = colors_cls[i])
+}
+
+legend("topright",
+       legend = colnames(oob_error),
+       col    = c(1, colors_cls),
+       lty    = 1)
+
+# ── Variable Importance plot 
+randomForest::varImpPlot(forest_model_data)
+
+# ── Information Gain feature filter 
+filter_data <- generateFilterValuesData(myTask,
+                                         method = "FSelectorRcpp_information.gain")
+plotFilterValues(filter_data)
+```
+
+## Benchmarking
+
+```{r Benchmarking, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Combine five learners into a list
+lda_lrn    <- makeLearner("classif.lda")
+qda_lrn    <- makeLearner("classif.qda")
+
+# Re-use the tuned wrappers / tuned learner objects
+learner_list <- list(lda_lrn, qda_lrn, svm_tuned, tree_tuned, forest_tuned)
+
+# Benchmark with RepCV (10 folds, 10 reps)
+bench_cv <- makeResampleDesc("RepCV", folds = 10, reps = 10)
+
+set.seed(42)
+bench_result <- mlr::benchmark(
+  learners   = learner_list,
+  tasks      = myTask,
+  resamplings = bench_cv,
+  measures   = list(mmce, acc, fpr, fnr),
+  show.info  = FALSE
+)
+
+bench_result
+
+# ── Boxplots of accuracy ─────────────────────────────────────────────────────
+plotBMRBoxplots(bench_result,
+                measure  = acc,
+                style    = "box",
+                pretty.names = FALSE) +
+  aes(colour = learner.id) +
+  theme_bw()
+
+# ── Bar chart of average accuracy ────────────────────────────────────────────
+bench_df <- as.data.frame(bench_result)
+
+ggplot(bench_df, aes(x = learner.id, y = acc, fill = learner.id)) +
+  stat_summary(geom = "bar", fun = "mean") +
+  scale_fill_brewer(palette = "YlGnBu") +
+  labs(x = "learner.id", y = "acc") +
+  theme_bw()
+```
+
+## Discussion
+
+**Q1: Why couldn't we use the k-Nearest Neighbors (kNN) algorithm easily on this dataset?**
+
+A1: kNN เป็น **instance-based learner** ที่ต้องใช้การคำนวณ distance ระหว่างข้อมูลแต่ละตัว ดังนั้นโดยปกติจะต้องใช้ข้อมูลที่เป็น **numeric ทั้งหมด** แต่ใน dataset นี้มีตัวแปรที่เป็น **categorical/factor หลายตัว** เช่น Gender, Married, Education, Self_Employed, Credit_History, Property_Area และ Dependents ทำให้ไม่สามารถนำไปคำนวณ distance ได้โดยตรง
+
+ถึงแม้จะสามารถ encode ตัวแปรเหล่านี้ให้เป็นตัวเลขได้ แต่ก็ยังมีปัญหาเรื่อง **scale ของแต่ละ feature ที่ต่างกัน** ซึ่งจะส่งผลต่อการคำนวณ distance ทำให้ต้องทำ normalization เพิ่มอีกขั้นตอน นอกจากนี้ kNN ยังมีข้อจำกัดเรื่อง **curse of dimensionality** เมื่อจำนวน feature เพิ่มขึ้น ซึ่งอาจทำให้ประสิทธิภาพของโมเดลลดลงได้
+
+**Q2: In the context of the Dream Housing Finance company, evaluate the importance of the model's Sensitivity versus Specificity. Which metric matters more for their business?**
+
+A2: ในบริบทของบริษัท Dream Housing Finance ค่า **Sensitivity (Recall)** ถือว่าสำคัญกว่า เนื่องจาก Sensitivity วัดความสามารถของโมเดลในการจำแนกลูกค้าที่ **ควรได้รับสินเชื่อ** ได้ถูกต้อง (True Positive Rate) หากค่า Sensitivity ต่ำ บริษัทอาจปฏิเสธลูกค้าที่มีคุณสมบัติเหมาะสมจริง ๆ ซึ่งหมายถึงการเสียโอกาสในการปล่อยสินเชื่อและรายได้จากดอกเบี้ย
+
+อย่างไรก็ตาม **Specificity** ก็ยังมีความสำคัญเช่นกัน เพราะเป็นตัวชี้วัดความสามารถในการจำแนกลูกค้าที่ **ไม่ควรได้รับสินเชื่อ** ซึ่งช่วยลดความเสี่ยงของการเกิด **NPL (Non-Performing Loan)**
+
+ดังนั้นในทางปฏิบัติ บริษัทควรให้ความสำคัญกับ **Sensitivity เป็นหลัก** เพื่อไม่พลาดลูกค้าที่ดี แต่ก็ต้องควบคุม **Specificity** ไม่ให้ต่ำเกินไป เพื่อรักษาสมดุลระหว่างการเติบโตของสินเชื่อและความเสี่ยงทางการเงิน
+
+**Q3: Look at the Variable Importance plots generated in Step 9. Which feature was identified as the most dominant predictor of Loan_Status? Does this align with real-world financial logic?**
+
+A3: จากกราฟ **Variable Importance** และค่า **Information Gain** พบว่าตัวแปรที่มีความสำคัญมากที่สุดในการทำนาย **Loan_Status** คือ **Credit_History** โดยมีค่า MeanDecreaseGini และ Information Gain สูงกว่าตัวแปรอื่นอย่างชัดเจน
+
+ผลลัพธ์นี้ถือว่าสอดคล้องกับตรรกะในโลกการเงินจริง เพราะ **ประวัติการชำระหนี้ (credit history)** เป็นหนึ่งในปัจจัยสำคัญที่สุดที่สถาบันการเงินใช้ในการประเมินความน่าเชื่อถือของผู้กู้ ลูกค้าที่มีประวัติการชำระหนี้ดีมักมีความเสี่ยงผิดนัดชำระต่ำ จึงมีโอกาสได้รับการอนุมัติสินเชื่อสูงกว่า
+
+------------------------------------------------------------------------
+
+End-of-File\
+2026-03-11
