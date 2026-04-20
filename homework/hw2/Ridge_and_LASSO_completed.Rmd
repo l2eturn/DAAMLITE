@@ -1,0 +1,740 @@
+---
+title: "Ridge Regression, LASSO, and Elastic Net"
+author: "Pongsun B."
+date: "2026-03-25"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+
+packages <- c("tidyverse", "tidymodels", "mlr", "mlr3", "mlr3learners", 
+              "mlbench", "glmnet", "plotmo", "xgboost", "randomForest", 
+              "corrplot", "janitor", "lubridate", "formatR", "knitr", "rmarkdown",
+              "kknn")
+
+#nstalled_packages <- packages %in% rownames(installed.packages())
+#install.packages(c("RcppArmadillo", "mvtnorm", "timereg"))
+#if (any(installed_packages == FALSE)) {
+  #install.packages(packages[!installed_packages], dependencies = TRUE)
+#}
+
+library(tidyverse)
+library(mlr)
+
+```
+
+```{r}
+library(glmnet)
+library(plotmo)
+library(parallel)
+library(parallelMap)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Our societies are full of checks and balances. In our political systems, parties balance each other (in theory) to find solutions that are at neither extreme of each other’s views. Professional areas, such as financial services, have regulatory bodies to prevent them from doing wrong and ensure that the things they say and do are truthful and correct. When it comes to machine learning, it turns out we can apply our own form of regulation to the learning process [to prevent the algorithm from overfitting the training set]{.underline}. We call this regulation in machine learning *regularization*.
+
+## 1. What is regularization?
+
+Regularization (also sometimes called *shrinkage*) is a technique that prevents the parameters of a model from becoming too large and “shrinks” them toward 0. The result of regularization is models that, when making predictions on new data, have [less variance]{.underline}.
+
+> NOTE: Recall that when we say a model has “less variance,” we mean it makes less-variable predictions on new data, because it is not as sensitive to the noise in the training set.
+
+While we can apply regularization to most machine learning problems, it is most commonly used in linear modeling, where it shrinks the slope parameter of each predictor toward 0. Three particularly well-known and commonly used regularization techniques for linear models are as follows:
+
+-   Ridge regression
+
+-   Least absolute shrinkage and selection operator (LASSO)
+
+-   Elastic net
+
+These three techniques can be thought of as extensions to linear models that reduce overfitting. Because they shrink model parameters toward 0, they can also automatically perform feature selection by forcing predictors with little information to have no or negligible impact on predictions.
+
+## 2. What is ridge regression?
+
+Take a look at the example in **Figure 1**. When we underfit the problem, we partition the feature space in a way that doesn’t do a good job of capturing local differences near the decision boundary. When we overfit, we place too much importance on these local differences and end up with a decision boundary that captures much of the noise in the training set, resulting in an overly complex decision boundary.
+
+Now take a look at **Figure 2**, which shows an example of what underfitting and overfitting look like for regression problems. When we underfit the data, we miss local differences in the relationship and produce a model that has high bias (makes inaccurate predictions). When we overfit the data, our model is too sensitive to local differences in the relationship and has high variance (will make very variable predictions on new data).
+
+![](images/clipboard-810427640.png)
+
+**Figure 1:** Examples of underfitting, optimal fitting, and overfitting for a two-class classification problem. The dotted line represents a decision boundary.
+
+![](images/clipboard-3821086951.png)
+
+**Figure 2:** Examples of underfitting, optimal fitting, and overfitting for a single predictor regression problem. The dotted line represents the regression line.
+
+The principal job of regularization is to prevent algorithms from learning models that are overfit, by discouraging complexity. This is achieved by penalizing model parameters that are large, shrinking them toward 0. This might sound counterintuitive: surely the model parameters learned by ordinary least squares (OLS) are the best, as they minimize the residual error. The problem is that this is only necessarily true for the training set, and not the test set.
+
+Consider the example in **Figure 3**. In the left-side plot, imagine that we only measured the two more darkly shaded cases. OLS would learn a line that passes through both cases, because this will minimize the sum of squares. We collect more cases in our study, and when we plot them on the right-side plot, we can see that the first model we trained doesn’t generalize well to the new data. This is due to *sampling error*, which is the difference between the distribution of data in our sample of cases and the distribution of data in the wider population we’re trying to make predictions on. In this case, because we only measured two cases, the sample doesn’t do a good job of representing the wider population, and we learned a model that overfit the training set.
+
+![](images/clipboard-198710711.png)
+
+**Figure 3:** Sampling error leads to models that don’t generalize well to new data. In the left-side example, a regression line is fit, considering only the more darkly shaded cases. In the right-side example, all the cases are used to construct the regression line. The dotted lines help indicate that the magnitude of the slope is larger on the left side than on the right.
+
+This is where regularization comes in. While OLS will learn the model that best fits the training set, the training set probably isn’t perfectly representative of the wider population. Overfitting the training set is more likely to result in model parameters that are too large, so regularization adds a penalty to the least squares that grows bigger with larger estimated model parameters. This process usually adds a little bias to the model, because we’re intentionally underfitting the training set, but the reduction in model variance often results in a better model anyway. This is especially true in situations where the ratio of predictors to cases is large.
+
+> NOTE: How representative your dataset is of the wider population depends on carefully planning your data acquisition, avoiding introducing bias with experimental design (or identifying and correcting for it if the data already exists), and ensuring that your datasets are sufficiently large to learn real patterns. If your dataset poorly represents the wider population, no machine learning technique, including cross-validation, will be able to help you!
+
+Regularization can help prevent overfitting due to sampling error, but perhaps a more important use of regularization is in preventing the inclusion of spurious predictors. If we add predictors to an existing linear regression model, we’re likely to get better predictions on the training set. This might lead us (falsely) to believe we are creating a better model by including more predictors. This is sometimes called *kitchen sink regression*.
+
+For example, imagine that you want to predict the number of people in a park on a given day, and you include the value of the FTSE 100 that day as a predictor. It’s unlikely that the value of the FTSE 100 has an influence on the number of people. Retaining this spurious predictor in the model has the potential to result in overfitting the training set. Because regularization will shrink this parameter, it will reduce the degree to which the model overfits the training set.
+
+Regularization can also help in situations that are *ill-posed*. An ill-posed problem in mathematics is one that does not satisfy these three conditions: having a solution, having a unique solution, and having a solution that depends on the initial conditions. In statistical modeling, a common ill-posed problem is when there is not one optimal parameter value, often encountered when the number of parameters is higher than the number of cases. In situations like this, regularization can make estimating the parameters a more stable problem.
+
+## 3. What is the L2 norm, and how does ridge regression use it?
+
+Imagine that you want to predict how busy your local park will be, depending on the temperature that day. An example of what this data might look like is shown in **Figure 4**.
+
+![](images/clipboard-1694400455.png)
+
+**Figure 4:** Calculating the sum of squares from a model that predicts the number of people in a park based on the temperature
+
+When using OLS, the residuals for a particular combination of intercept and slope are calculated for each case and squared. These squared residuals are then all added up to give the sum of squares.
+
+$$
+\text{sum of squares} = \sum_{i=1}^{n} \left(y_i - \hat{y}_i\right)^2
+$$
+
+Mathematical functions that are minimized by machine learning algorithms to select the best combinations of parameters are called *loss functions*. Therefore, least squares is the loss function for the OLS algorithm.
+
+Ridge regression modifies the least squares loss function slightly to include a term that makes the function’s value larger, the larger the parameter estimates are. As a result, the algorithm now has to balance selecting the model parameters that minimize the sum of squares, and selecting parameters than minimize this new penalty. In ridge regression, this penalty is called the **L2 norm**, and it is very easy to calculate: we simply square all of the model parameters and add them up (all except the intercept). This is illustrated for our park example in **Figure 5**.
+
+![](images/clipboard-1855126990.png)
+
+**Figure 5:** Calculating the sum of squares and the L2 norm for the slope between temperature and the number of people at the park.
+
+In general, the more predictors a model has, the larger its L2 norm will be, because we are adding their squares together. Ridge regularization therefore penalizes models that are too complex, because they have too many predictors.
+
+So that we can control how much we want to penalize model complexity, we multiply the L2 norm by a value called *lambda* ($\lambda$). Lambda can be any value from 0 to infinity and acts as a volume knob: large values of lambda strongly penalize model complexity, while small values of lambda weakly penalize model complexity. Lambda cannot be estimated from the data, so it is a hyperparameter that we need to tune to achieve the best performance by cross-validation. Once we calculate the L2 norm and multiply it by lambda, we then add this product to the sum of squares to get our penalized least squares loss function.
+
+$$
+\text{loss function}_{L2} = \sum_{i = 1}^{n} (y_i - \hat{y_i}) + \lambda \sum_{j=1}^{p}\beta_j^2
+$$
+
+If we set lambda to 0, this removes the L2 norm penalty from the equation and we get back to the OLS loss function. If we set lambda to a very large value, all the slopes will shrink close to 0.
+
+So ridge regression learns a combination of model parameters that minimize this new loss function. Imagine a situation where we have many predictors. OLS might estimate a combination of model parameters that do a great job of minimizing the least squares loss function, but the L2 norm of this combination might be huge. In this situation, ridge regression would estimate a combination of parameters that have a slightly higher least squares value but a considerably lower L2 norm. Because the L2 norm gets smaller when model parameters are smaller, the slopes estimated by ridge regression will probably be smaller than those estimated by OLS.
+
+> **IMPORTANT:** When using L2- or L1-penalized loss functions, it’s critical that the predictor variables are scaled first (divided by their standard deviation to put them on the same scale). This is because we are adding the squared slopes (in the case of L2 regularization), and this value is going to be considerably larger for predictors on larger scales (millimeters versus kilometers, for example). If we don’t scale the predictors first, they won’t all be given equal importance.
+
+Take a look at **Figure 6**. The x- and y-axes show values for two slope parameters, ($\beta_1$ and $\beta_2$). The shaded contour lines represent different sum of squares values for different combinations of the two parameters, where the combination resulting in the smallest sum of squares is at the center of the contours. The dashed circles centered at represent the L2 norm multiplied by different values of lambda, for the combinations of $\beta_1$ and $\beta_2$ the dashed lines pass through.
+
+![](images/clipboard-1903925185.png)
+
+**Figure 6:** A graphical representation of the ridge regression penalty. The x- and y-axes represent the values of two model parameters. The solid, concentric circles represent the sum of squares value for different combinations of the parameters. The dashed circles represent the L2 norm multiplied by *lambda*.
+
+Notice that when lambda = 0, the circle passes through the combination of $\beta_1$ and $\beta_2$ that minimizes the sum of squares. When lambda is increased, the circle shrinks symmetrically toward 0. Now the combination of parameters that minimizes the penalized loss function is the combination with the smallest sum of squares *that lies on the circle*. Put another way, the optimal solution when using ridge regression is always at the intersection of the circle and the ellipse around the OLS estimate. As we increase lambda, the circle shrinks and the selected combination of model parameters gets sucked toward 0.
+
+So, by using the L2-penalized loss function to learn the slope parameters, ridge regression prevents us from training models that overfit the training data.
+
+```         
+NOTE: The intercept isn’t included when calculating the L2 norm because it is defined as the value of the outcome variable when all the slope parameters are equal to 0.
+```
+
+## 4. What is the L1 norm, and how does LASSO use it?
+
+Let’s remind ourselves what the L2 norm looks like. Recall that we square the value of each of the slope parameters and add them all up. We then multiply this L2 norm by lambda to get the penalty we add to the sum of squares loss function.
+
+$$
+\text{L2 norm} = \sum_{j=1}^{p}\beta_j^2
+$$
+
+The L1 norm is only slightly different than the L2 norm. Instead of squaring the parameter values, we take their absolute value instead and then sum them.
+
+$$
+\text{L1 norm} = \sum_{j=1}^{p}\left| \beta_j \right|
+$$
+
+We then create the loss function for LASSO (the L1-penalized loss function) in exactly the same way we did for ridge regression: we multiply the L1 norm by lambda (which has the same meaning) and add it to the sum of squares.
+
+$$
+\text{loss function}_{L1} = \sum_{i = 1}^{n} (y_i - \hat{y_i}) + \lambda \sum_{j=1}^{p}\left| \beta_j \right|
+$$
+
+*What’s the benefit/difference of using the L1 norm instead of the L2 norm?*
+
+Ridge regression can shrink parameter estimates toward 0, but they will never actually be 0 (unless the OLS estimate is 0 to begin with). So if you have a machine learning task where you believe all the variables should have some degree of predictive value, ridge regression is great because it won’t remove any variables. But what if you have a large number of variables and/or you want an algorithm that will perform feature selection for you? LASSO is helpful here because unlike ridge regression, LASSO is able to shrink small parameter values to 0, effectively removing that predictor from the model.
+
+Let’s represent this graphically the same way we did for ridge regression. **Figure 7** shows the contours of the sum of squares for the same two imaginary parameters as in **Figure 6**. Instead of forming a circle, the LASSO penalty forms a square, rotated 45-degree such that its vertices lie along the axes. For the same lambda as in our ridge regression example, the combination of parameters with the smallest sum of squares that touches the diamond is one where parameter $\beta_2$ is 0. This means the predictor represented by this parameter has been removed from the model.
+
+![](images/clipboard-393667163.png)
+
+**Figure 7:** A graphical representation of the LASSO penalty. The x- and y-axes represent the values of two model parameters. The solid, concentric circles represent the sum of squares value for different combinations of the parameters. The dashed diamonds represent the L2 norm multiplied by *lambda*.
+
+To make this extra clear, I’ve overlaid the LASSO and ridge penalties in **Figure 8**, including dotted lines that highlight the parameter values chosen by each method.
+
+![](images/clipboard-3841045282.png)
+
+**Figure 8:** Comparing the ridge regression and LASSO penalties
+
+> **NOTE:** One important limitation of LASSO is that if you have more predictors than cases, it will select at most a number of predictors equal to the number of cases in the data. Put another way, if your dataset contains 100 predictors and 50 cases, LASSO will set the slopes of at least 50 predictors to 0!
+
+## 5. What is elastic net?
+
+Sometimes you may have a *prior justification* for why you wish to use ridge regression or LASSO.
+
+-   If it’s important that you include all your predictors in the model, however small their contribution, use ridge regression.
+
+-   If you want the algorithm to perform feature selection for you by shrinking uninformative slopes to 0, use LASSO.
+
+In such situations that the decision between ridge regression and LASSO isn’t a clear one, don’t choose between them: use elastic net, instead.
+
+Elastic net is an extension of linear modeling that includes both L2 and L1 regularization in its loss function. It finds a combination of parameter estimates somewhere between those found by ridge regression and LASSO. We’re also able to control just how much importance we place on the L2 versus the L1 norms using the hyperparameter *alpha*.
+
+We multiply the L2 norm by $1 – \alpha$, multiply the L1 norm by $\alpha$, and add up these values. We multiply this value by lambda and add it to the sum of squares. Alpha here can take any value between 0 and 1:
+
+-   When alpha is 0, the L1 norm becomes 0, and we get ridge regression.
+
+-   When alpha is 1, the L2 norm becomes 0, and we get LASSO.
+
+-   When alpha is between 0 and 1, we get a mixture of ridge regression and LASSO.
+
+How do we choose alpha? We don’t! We tune it as a hyperparameter and let crossvalidation choose the best-performing value for us.
+
+$$
+\text{loss function}_{elastic} = \sum_{i = 1}^{n} (y_i - \hat{y_i}) + \lambda \left( \left( 1 - \alpha \right)\sum_{j=1}^{p}\beta_j^2 + \alpha \sum_{j=1}^{p}\left| \beta_j \right| \right)
+$$
+
+**Figure 9** compares the shapes of the ridge, LASSO, and elastic net penalties. Because the elastic net penalty is somewhere between the ridge and LASSO penalties, it looks like a square with rounded sides.
+
+![](images/clipboard-3863025097.png)
+
+**Figure 9:** Comparing the shape of the ridge regression, LASSO, and elastic net penalties
+
+So why might we prefer elastic net over ridge regression or LASSO? Well, elastic net can shrink parameter estimates to 0, allowing it to perform feature selection like LASSO. But it also circumvents LASSO’s limitation of not being able to select more variables than there are cases. Another limitation of LASSO is that if there is a group of predictors that are correlated with each other, LASSO will only select one of the predictors. Elastic net, on the other hand, is able to retain the group of predictors.
+
+For these reasons, I usually dive straight in with elastic net as my regularization method of choice. Even if pure ridge or LASSO will result in the best-performing model, the ability to tune *alpha* as a hyperparameter still allows the possibility of selecting ridge or LASSO, although the optimal solution is usually somewhere between them.
+
+An exception to this is when we have prior knowledge about the effect of the predictors we’ve included in our model. If we have very strong domain knowledge that predictors ought to be included in the model, then we may have a preference for ridge regression. Conversely, if we have a strong prior belief that there are variables that probably don’t contribute anything (but we don’t know which), we may prefer LASSO.
+
+## 6. Building your first ridge, LASSO, and elastic net models
+
+We’re going to build ridge, LASSO, and elastic net models on the same dataset, and use benchmarking to compare how they perform against each other and against an unregularized linear model. Imagine that you’re trying to estimate the market price of wheat for the coming year in Iowa. The market price depends on the yield for that particular year, so you’re trying [to predict the yield of wheat from rain and temperature measurements]{.underline}.
+
+### 6.1 Loading and exploring the Iowa dataset
+
+Let’s load the data, which is built into the lasso2 package, convert it into a tibble (with `as_tibble()`), and explore it. We have a tibble containing only 33 cases and 10 variables of various rainfall and temperature measurements, the year, and the wheat yield.
+
+Also, let’s plot the data to get a better understanding of the relationships within it. We’ll use our usual trick of gathering the data so we can facet by each variable, supplying `"free_x"` as the scales argument to allow the x-axis to vary between facets. To get an indication as to any linear relationships with `Yield`, also apply a `geom_smooth` layer, using `"lm"` as the argument to method to get linear fits.
+
+```{r Loading and exploring the Iowa dataset, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+Iowa <- read.csv("iowa.csv")
+
+iowaTib <- as_tibble(Iowa)
+iowaTib
+
+iowa_long <- pivot_longer(iowaTib, 
+                          names_to = "Variable", 
+                          values_to = "Value", 
+                          -Yield)
+
+ggplot(iowa_long, aes(Value, Yield)) +
+  facet_wrap(~ Variable, scales = "free_x") +
+  geom_point(size = 0.5) +
+  geom_smooth(method = "lm") +
+  theme_bw()
+
+```
+
+It looks like some of the variables correlate with `Yield`; but notice that because we don’t have a large number of cases, the slopes of some of these relationships could drastically change if we only removed a couple of cases near the extremes of the x-axis. For example, would the slope between `Rain2` and `Yield` be nearly as steep if we hadn’t measured those three cases with the highest rainfall?
+
+*We’re going to need regularization to prevent overfitting for this dataset.*
+
+### 6.2 Training the ridge regression model
+
+Let’s define our task and learner, this time supplying `"regr.glmnet"` as the argument to `makeLearner()`. Handily, the `glmnet` function (from the package of the same name) allows us to create ridge, LASSO, and elastic net models using the same function.
+
+Set the value of *alpha* equal to 0. This is how we specify that we want to use pure ridge regression with the `glmnet` function. We also supply an argument that you haven’t seen before: `id`. The `id` argument just lets us supply a unique name to every learner. We’re going to benchmark our ridge, LASSO, and elastic net learners against each other. Because we create each of these with the same `glmnet` function, we’ll get an error because they won’t each have a unique identifier.
+
+Let’s get an idea of how much each predictor would contribute to a model’s ability to predict `Yield`. We can use the `generateFilterValuesData(`) and `plotFilterValues()` functions we used previously when performing feature selection using the filter method.
+
+```{r Creating the task and Ridge learner, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+iowaTask <- makeRegrTask(data = iowaTib, target = "Yield")
+
+ridge <- makeLearner("regr.glmnet", alpha = 0, id = "ridge")
+
+filterVals <- generateFilterValuesData(iowaTask,
+                                       method = "randomForest_importance")
+
+plotFilterValues(filterVals) + theme_bw()
+
+```
+
+We can see that `Year` contains the most predictive information about `Yield`; `Rain3`, `Temp4`, `Rain1`, and `Rain0` seem to contribute very little; and `Temp1` seems to make a negative contribution, suggesting that including it in the model will be to the detriment of predictive accuracy.
+
+But we’re not going to perform *feature selection*. Instead, we’re going to enter all the predictors and let the algorithm shrink the ones that contribute less to the model.
+
+The first thing we need to do is tune the `lambda` hyperparameter that controls just how big a penalty to apply to the parameter estimates.
+
+> NOTE: Remember that when `lambda` equals 0, we are applying no penalty and get the OLS parameter estimates. The larger lambda is, the more the parameters are shrunk toward 0.
+
+We’ll start by defining the hyperparameter space we’re going to search to find the optimal value of lambda. Recall that to do this, we use the `makeParamSet()` function, supplying each of our hyperparameters to search, separated by commas. Because we only have one hyperparameter to tune, and because `lambda` can take any numeric value between 0 and infinity, we use the `makeNumericParam()` function to specify that we want to search for numeric values of lambda between 0 and 15.
+
+> NOTE: Notice that I’ve called the hyperparameter "s" instead of "lambda". If you run `getParamSet(ridge)`, you will indeed see a tunable hyperparameter called `lambda`, so what’s with the "s"? The authors of `glmnet` helpfully wrote it so that it will build models for a range of lambdas for us. Then we can plot the lambdas to see which one gives the best cross-validated performance. This is handy, but seeing as we’re using `mlr` as a universal interface to many machine learning packages, it makes sense for us to tune *lambda* ourselves the way we’re used to. The `glmnet` *lambda* hyperparameter is used for specifying a *sequence of lambda* values to try, and the authors specifically recommend *not* supplying a single value for this hyperparameter. Instead, the `s` hyperparameter is used to train a model with a single, specific lambda, so this is what we will tune when using `mlr`. For more information, I suggest reading the documentation for `glmnet` by running `?glmnet::glmnet`.
+
+Next, let’s define our search method as a random search with 200 iterations using `makeTuneControlRandom()`, and define our cross-validation method as 3-fold crossvalidation repeated 5 times, using `makeResampleDesc()`. Finally, we run our hyperparameter tuning process with the tuneParams() function. To speed things up a little, let’s use `parallelStartSocket()` to parallelize the search.
+
+```{r Tuning the lambda (s) hyperparameter, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+ridgeParamSpace <- makeParamSet(makeNumericParam("s", lower = 0, upper = 15))
+
+randSearch <- makeTuneControlRandom(maxit = 200)
+
+cvForTuning <- makeResampleDesc("RepCV", folds = 3, reps = 10)
+
+parallelStartMulticore(cpus = detectCores())
+
+tunedRidgePars <- tuneParams(ridge, 
+                             task = iowaTask,
+                             resampling = cvForTuning, 
+                             par.set = ridgeParamSpace, 
+                             measures = list(mae, mse, rmse),
+                             control = randSearch)
+
+parallelStop()
+
+tunedRidgePars
+
+```
+
+*How can we be sure we searched over a large enough range of lambdas?*
+
+Let’s plot each value of lambda against the mean MSE of its models and see if it looks like there may be a better value outside of our search space (greater than 15). First, we extract the lambda and mean MSE values for each iteration of the random search by supplying our tuning object as the argument to the `generateHyperParsEffectData()` function. Then, we supply this data as the first argument of the `plotHyperParsEffect()` function and tell it we want to plot the values of s on the x-axis and the mean RMSE ("rmse.test.mean") on the y-axis, and that we want a line that connects
+
+```{r Plotting the hyperparameter tuning process, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+ridgeTuningData <- generateHyperParsEffectData(tunedRidgePars)
+
+plotHyperParsEffect(ridgeTuningData, 
+                    x = "s", 
+                    y = "rmse.test.rmse",
+                    plot.type = "line") +
+  theme_bw()
+
+```
+
+We can see that the RMSE is minimized for lambdas between 5 and 7.5, and it seems that increasing lambda beyond 7.5 results in models that perform worse. If the MSE seemed to be still decreasing at the edge of our search space, we would need to expand the search in case we’re missing better hyperparameter values. Because we appear to be at the minimum, we’re going to stop our search here.
+
+> NOTE: It’s possible we are only in a *local minimum*, the smallest MSE value compared to the values of lambda around it. When searching a hyperparameter space, there may be many local minima (plural of minimum); but we really want to find the *global minimum*, which is the lowest MSE value across all possible hyperparameter values. For example, imagine that if we keep increasing lambda, the MSE gets higher but then starts to come down again, forming a hill. It’s possible that this hill continues to decrease even more than the minimum. Therefore, it’s a good idea to really search your hyperparameter space well to try to find that *global minimum*.
+
+Now that we think we’ve selected the best-performing value of lambda, let’s train a model using that value. First, we use the `setHyperPars()` function to define a new learner using our tuned lambda value. Then, we use the `train()` function to train the model on our `iowaTask`.
+
+```{r Training a ridge regression model using the tuned lambda, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+tunedRidge <- setHyperPars(ridge, par.vals = tunedRidgePars$x)
+
+tunedRidgeModel <- train(tunedRidge, iowaTask)
+
+```
+
+One of the main motivations for using linear models is that we can interpret the slopes to get an idea of how much the outcome variable changes with each predictor. So let’s extract the parameter estimates from our ridge regression model. First, we extract the model data using the `getLearnerModel()` function. Then, we use the `coef()` function (short for *coefficients*) to extract the parameter estimates. Note that because of the way `glmnet` works, we need to supply the value of lambda to get the parameters for that model.
+
+When we print `ridgeCoefs`, we get a matrix containing the name of each parameter and its slope. The `intercept` is the estimated `Yield` when all the predictors are 0. Of course, it doesn’t make much sense to have negative wheat yield, but because it doesn’t make sense for all the predictors to be 0 (such as the year), we won’t interpret this. We’re more interested in interpreting the slopes, which are reported on the predictor’s original scale.
+
+> NOTE: Recall that I mentioned how important it is to scale our predictors so that they are weighted equally when calculating the L1 and/or L2 norms. Well, `glmnet` does this for us by default, using its `standardize = TRUE` argument. This is handy, but it’s important to remember that the parameter estimates are transformed back onto the variables’ original scale.
+
+```{r Extracting the model parameters, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+ridgeModelData <- getLearnerModel(tunedRidgeModel)
+
+# plot(ridgeModelData, xvar = "lambda", label = TRUE)
+# plot(ridgeModelData, xvar = "norm", label = TRUE)
+
+ridgeCoefs <- coef(ridgeModelData, s = tunedRidgePars$x$s)
+
+ridgeCoefs
+
+```
+
+Let’s plot these parameter estimates against the estimates from unregularized linear regression, so you can see the effect of parameter shrinkage. First, we need to train a linear model using OLS. We could do this with `mlr`, but as we’re not going to do anything fancy with this model, we can create one quickly using the lm() function. The first argument to `lm()` is the formula `Yield ~ .`, which means `Yield` is our outcome variable, and we want to model it (`~`) using all other variables in the data (`.`). We tell the function where to find the data, and wrap the whole `lm()` function inside the `coef()` function to extract its parameter estimates.
+
+Next, we create a tibble containing three variables:
+
+-   The parameter names
+
+-   The ridge regression parameter values
+
+-   The `lm` parameter values
+
+Because we want to exclude the intercepts, we use `[-1]` to subset all the parameters except the first one (the intercept).
+
+So that we can facet by model, we `pivot_longer()` the data and then plot it using `ggplot()`. Because it’s nice to see things in ascending or descending order, we supply `reorder(Coef, Beta)`, which will use the `Coef` variable as the x aesthetic ordered by the `Beta` variable. By default, `geom_bar()` tries to plot frequencies, but because we want bars to represent the actual value of each parameter, we set the `stat = "identity"` argument.
+
+```{r Plotting the model parameters, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+lmCoefs <- coef(lm(Yield ~ ., data = iowaTib))
+
+lmCoefs
+
+coefTib <- tibble(Coef = rownames(ridgeCoefs)[-1],
+                  Ridge = as.vector(ridgeCoefs)[-1],
+                  Lm = as.vector(lmCoefs)[-1])
+
+coef_long <- pivot_longer(coefTib, 
+                          names_to = "Model", 
+                          values_to = "Beta", 
+                          -Coef)
+
+ggplot(coef_long, aes(x = reorder(Coef, Beta), 
+                      y = Beta, 
+                      fill = Model)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~Model) +
+  theme_bw()  + 
+  theme(legend.position = "none")
+
+```
+
+In the left facet, we have the parameter estimates for the unregularized model; and in the right facet, we have the estimates for our ridge regression model. Most of the ridge regression parameters (though not all) are smaller than those for the unregularized model. This is the effect of regularization.
+
+### 6.3 Training the LASSO model
+
+Repeat the model-building process of the previous section, but using LASSO instead. Train the model and compare parameter estimates between the models for a better understanding of how the techniques differ.
+
+**Step 1:** Define the LASSO learner, this time setting *alpha* equal to 1 (to make it pure LASSO). And we give the learner an ID, which we’ll use when we benchmark the models later.
+
+**Step 2:** Tune the *lambda* hyperparameter.
+
+**Step 3:** Plot the tuning process to see if we need to expand our search. Plot the RMSE on the y-axis.
+
+**Step 4:** Train a LASSO model using our tuned value of lambda.
+
+**Step 5:** Extract the parameter estimates from the tuned LASSO model and plot these parameter estimates alongside those from the ridge and OLS models to give a more graphical comparison.
+
+[Hint]{.underline}: Add a new column to the `coefTib` tibble using `$LASSO`; it contains the parameter estimates from the LASSO model (excluding the `intercept`). We then use pivot_longer with this data so we can facet by model, and plot it as before using `ggplot()`.
+
+```{r Training the LASSO model, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 1:
+lasso <- makeLearner("regr.glmnet", alpha = 1, id = "lasso")
+
+# Step 2:
+lassoParamSpace <- makeParamSet(makeNumericParam("s", lower = 0, upper = 15))
+
+parallelStartMulticore(cpus = detectCores())
+
+tunedLassoPars <- tuneParams(lasso,
+                             task = iowaTask,
+                             resampling = cvForTuning,
+                             par.set = lassoParamSpace,
+                             measures = list(mae, mse, rmse),
+                             control = randSearch)
+
+parallelStop()
+
+tunedLassoPars
+
+# Step 3:
+lassoTuningData <- generateHyperParsEffectData(tunedLassoPars)
+
+plotHyperParsEffect(lassoTuningData,
+                    x = "s",
+                    y = "rmse.test.rmse",
+                    plot.type = "line") +
+  theme_bw()
+
+# Step 4:
+tunedLasso     <- setHyperPars(lasso, par.vals = tunedLassoPars$x)
+tunedLassoModel <- train(tunedLasso, iowaTask)
+
+# Step 5:
+lassoModelData <- getLearnerModel(tunedLassoModel)
+lassoCoefs     <- coef(lassoModelData, s = tunedLassoPars$x$s)
+
+coefTib$LASSO <- as.vector(lassoCoefs)[-1]
+
+coef_long2 <- pivot_longer(coefTib,
+                           names_to  = "Model",
+                           values_to = "Beta",
+                           -Coef)
+
+ggplot(coef_long2, aes(x = reorder(Coef, Beta),
+                       y = Beta,
+                       fill = Model)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~Model) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+
+```
+
+### 6.4 Training the elastic net model
+
+Train an elastic net model by tuning both *lambda* and *alpha*.
+
+**Step 1:** Create an elastic net learner. Don’t supply a value of alpha, because we’re going to tune it to find the best trade-off between L1 and L2 regularization. We also give it an ID that we can use later when benchmarking.
+
+**Step 2:** Define the hyperparameter space to tune over, this time including *alpha* as a numeric hyperparameter bounded between 0 and 1. Because we’re now tuning two hyperparameters, let’s increase the number of iterations of our random search by setting `maxit = 500` to get a little more coverage of the search space. Finally, run the tuning process as before and print the optimal result.
+
+**Step 3:** Plot our tuning process to confirm that our search space was large enough. Because we are tuning two hyperparameters simultaneously, we supply *lambda* and *alpha* as the x- and y-axes, and RMSE (`"rmse.test.rmse"`) as the z-axis.
+
+Set the `plot.type` argument equal to `"heatmap"` to draw a heatmap where the color is mapped to whatever we set as the z-axis. However, we need to fill in the gaps between our 500 search iterations. To do this, supply the name of any regression algorithm to the interpolate argument. Use `"regr.kknn"`, which uses k-nearest neighbors to fill in the gaps based on the RMSE values of the nearest search iterations. Add a single `geom_point` to the plot to indicate the combination of *lambda* and *alpha* that were selected by our tuning process.
+
+![](images/clipboard-3049772874.png){width="600"}
+
+**Step 4:** Train the final elastic net model using the tuned hyperparameters.
+
+**Step 5:** Extract the model parameters and plot them alongside the other three models.
+
+![](images/clipboard-3912868448.png){width="600"}
+
+Notice that our elastic net model’s parameter estimates are something of a compromise between those estimated by ridge regression and those estimated by LASSO. The elastic net model’s parameters are more similar to those estimated by pure LASSO, however, because our tuned value of *alpha* was close to 1 (remember that when *alpha* equals 1, we get pure LASSO).
+
+```{r Training the elastic net model, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 1:
+elastic <- makeLearner("regr.glmnet", id = "elastic")
+
+# Step 2:
+elasticParamSpace <- makeParamSet(makeNumericParam("s", lower = 0, upper = 10),
+                                  makeNumericParam("alpha", lower = 0, upper = 1))
+
+randSearch500 <- makeTuneControlRandom(maxit = 500)
+
+parallelStartMulticore(cpus = detectCores())
+
+tunedElasticPars <- tuneParams(elastic,
+                               task = iowaTask,
+                               resampling = cvForTuning,
+                               par.set = elasticParamSpace,
+                               measures = list(mae, mse, rmse),
+                               control = randSearch500)
+
+parallelStop()
+
+tunedElasticPars
+
+# Step 3:
+elasticTuningData <- generateHyperParsEffectData(tunedElasticPars)
+
+plotHyperParsEffect(elasticTuningData,
+                    x = "s",
+                    y = "alpha",
+                    z = "rmse.test.rmse",
+                    plot.type = "heatmap",
+                    interpolate = "regr.kknn") +
+  scale_fill_gradientn(colours = terrain.colors(10)) +
+  geom_point(x = tunedElasticPars$x$s,
+             y = tunedElasticPars$x$alpha,
+             col = "white", size = 3) +
+  theme_bw()
+
+# Step 4:
+tunedElastic      <- setHyperPars(elastic, par.vals = tunedElasticPars$x)
+tunedElasticModel <- train(tunedElastic, iowaTask)
+
+# Step 5:
+elasticModelData <- getLearnerModel(tunedElasticModel)
+elasticCoefs     <- coef(elasticModelData, s = tunedElasticPars$x$s)
+
+coefTib$Elastic <- as.vector(elasticCoefs)[-1]
+
+coef_long3 <- pivot_longer(coefTib,
+                           names_to  = "Model",
+                           values_to = "Beta",
+                           -Coef)
+
+ggplot(coef_long3, aes(x = reorder(Coef, Beta),
+                       y = Beta,
+                       fill = Model)) +
+  geom_bar(stat = "identity") +
+  facet_wrap(~Model) +
+  theme_bw() +
+  theme(legend.position = "none")
+
+
+```
+
+## 7. Benchmarking ridge, LASSO, elastic net, and OLS against each other
+
+Let’s use benchmarking to simultaneously cross-validate and compare the performance of our ridge, LASSO, elastic net, and OLS modeling processes. Recall that benchmarking takes a list of learners, a task, and a cross-validation procedure. Then, for each iteration/fold of the cross-validation process, a model is trained using each learner on the same training set, and evaluated on the same test set. Once the entire cross-validation process is complete, we get the mean performance metric for each learner, allowing us to compare which would perform best.
+
+**Step 1:** Define tuning wrappers for each learner so we can include hyperparameter tuning inside our cross-validation loop. For each wrapper (one each for ridge, LASSO, and elastic net), supply the learner, cross-validation strategy, the parameter space for that learner, and the search procedure for that learner. OLS regression doesn’t need hyperparameter tuning, so don’t make a wrapper for it.
+
+**Step 2:** Create a list of these wrappers (and "regr.lm" for the OLS regression learner) and run the benchmarking experiment. Let’s define the outer resampling strategy to be 3-fold cross-validation.
+
+```{r Benchmarking, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 1: 
+ridgeWrapper <- makeTuneWrapper(ridge,
+                                resampling = cvForTuning,
+                                par.set    = ridgeParamSpace,
+                                measures   = list(mae, mse, rmse),
+                                control    = randSearch)
+
+lassoWrapper <- makeTuneWrapper(lasso,
+                                resampling = cvForTuning,
+                                par.set    = lassoParamSpace,
+                                measures   = list(mae, mse, rmse),
+                                control    = randSearch)
+
+elasticWrapper <- makeTuneWrapper(elastic,
+                                  resampling = cvForTuning,
+                                  par.set    = elasticParamSpace,
+                                  measures   = list(mae, mse, rmse),
+                                  control    = randSearch500)
+
+# Step 2: 
+learners <- list(ridgeWrapper, lassoWrapper, elasticWrapper,
+                 makeLearner("regr.lm"))
+
+outerCV <- makeResampleDesc("CV", iters = 3)
+
+parallelStartMulticore(cpus = detectCores())
+
+benchmarkResult <- benchmark(learners, iowaTask, outerCV,
+                             measures = list(mae, mse, rmse))
+
+parallelStop()
+
+benchmarkResult
+plotBMRBoxplots(benchmarkResult, pretty.names = FALSE)
+
+
+```
+
+## 8. Strengths and weaknesses of ridge, LASSO, and elastic net
+
+While it often isn’t easy to tell which algorithms will perform well for a given task, here are some strengths and weaknesses that will help you decide whether ridge regression, LASSO, and elastic net will perform well for you.
+
+The strengths of ridge, LASSO, and elastic net are as follows:
+
+-   They produce models that are very interpretable.
+
+-   They can handle both continuous and categorical predictors.
+
+-   They are computationally inexpensive.
+
+-   They often outperform OLS regression.
+
+-   LASSO and elastic net can perform feature selection by setting the slopes of uninformative predictors equal to 0.
+
+-   They can also be applied to generalized linear models (such as logistic regression).
+
+The weaknesses of ridge, LASSO, and elastic net are these:
+
+-   They make strong assumptions about the data, such as homoscedasticity (constant variance) and the distribution of residuals (performance may suffer if these are violated).
+
+-   Ridge regression cannot perform feature selection automatically.
+
+-   LASSO cannot estimate more parameters than cases in the training set.
+
+-   They cannot handle missing data.
+
+## Exercises
+
+### Exercise 1
+
+From the ridge regression model, repeat the tuning process. But this time, expand the search space to include values of s between 0 and 50. Did our original search find a *local minimum* or the *global minimum*?
+
+### Exercise 2
+
+From the elastic net model, let’s experiment with the `plotHyperParsEffect()` function. Change the `plot.type` argument to `"contour"`, add the argument `show.experiments = TRUE`, and redraw the plot. Next, change `plot.type` to `"scatter"`, remove the `interpolate` and `show.experiments` arguments, and remove the `scale_fill_gradientn()` layer.
+
+### Exercise 3
+
+Create a new tibble that contains only the `Yield` variable, and make a new regression task using this data, with `Yield` set as the target.
+
+1.  Train an ordinary OLS model on this data (a model with no predictors).
+
+2.  Train a LASSO model on the original `iowaTask` with a *lambda* value of 500.
+
+3.  Cross-validate both models using leave-one-out cross-validation (`makeResampleDesc("LOO")`).
+
+4.  How do the mean MSE values of both models compare? Why?
+
+### Exercise 4
+
+Calling `plot()` on a `glmnet` model object doesn’t plot model residuals. Install the `plotmo` package and use its `plotres()` function, passing the model data objects for the ridge, LASSO, and elastic net models as arguments.
+
+```{r SOLUTIONS TO EXERCISES, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Exercise 1
+# ขยาย search space เป็น s = 0–50 เพื่อตรวจสอบว่าเดิมหา global minimum หรือแค่ local minimum
+ridgeParamSpace2 <- makeParamSet(makeNumericParam("s", lower = 0, upper = 50))
+
+parallelStartMulticore(cpus = detectCores())
+
+tunedRidgePars2 <- tuneParams(ridge,
+                              task      = iowaTask,
+                              resampling = cvForTuning,
+                              par.set   = ridgeParamSpace2,
+                              measures  = list(mae, mse, rmse),
+                              control   = randSearch)
+
+parallelStop()
+
+tunedRidgePars2
+
+ridgeTuningData2 <- generateHyperParsEffectData(tunedRidgePars2)
+
+plotHyperParsEffect(ridgeTuningData2,
+                    x = "s",
+                    y = "rmse.test.rmse",
+                    plot.type = "line") +
+  theme_bw()
+# ถ้า minimum ยังอยู่ในช่วง 5–7.5 เหมือนเดิม แสดงว่าค้นหา global minimum ได้แล้ว
+# ถ้า RMSE ยังลดลงอยู่ในช่วง > 15 แสดงว่าเดิมเจอแค่ local minimum
+
+
+# Exercise 2
+# Contour plot with show.experiments = TRUE
+plotHyperParsEffect(elasticTuningData,
+                    x = "s",
+                    y = "alpha",
+                    z = "rmse.test.rmse",
+                    plot.type = "contour",
+                    interpolate = "regr.kknn",
+                    show.experiments = TRUE) +
+  scale_fill_gradientn(colours = terrain.colors(10)) +
+  theme_bw()
+
+# Scatter plot (ลบ interpolate, show.experiments, และ scale_fill_gradientn ออก)
+plotHyperParsEffect(elasticTuningData,
+                    x = "s",
+                    y = "alpha",
+                    z = "rmse.test.rmse",
+                    plot.type = "scatter") +
+  theme_bw()
+
+
+# Exercise 3
+# (a) สร้าง tibble ที่มีแค่ Yield และ task ใหม่ (intercept-only model)
+yieldTib  <- tibble(Yield = iowaTib$Yield)
+yieldTask <- makeRegrTask(data = yieldTib, target = "Yield")
+
+# (b) Train OLS บน yieldTask (model ที่ไม่มี predictor เลย ใช้แค่ intercept)
+ols <- makeLearner("regr.lm")
+
+# (c) Train LASSO บน iowaTask เดิม แต่กำหนด lambda = 500 (penalize สูงมาก → slopes → 0)
+lassoHighLambda <- setHyperPars(lasso, par.vals = list(s = 500))
+
+# (d) Cross-validate ทั้งคู่ด้วย Leave-One-Out (LOO)
+looCV <- makeResampleDesc("LOO")
+
+olsLOO   <- resample(ols,            yieldTask, looCV, measures = list(mse))
+lassoLOO <- resample(lassoHighLambda, iowaTask,  looCV, measures = list(mse))
+
+cat("OLS (intercept only) LOO MSE :", olsLOO$aggr,   "\n")
+cat("LASSO (s=500)        LOO MSE :", lassoLOO$aggr, "\n")
+# ทั้งสอง model ควรได้ MSE ใกล้เคียงกัน เพราะ LASSO ที่ lambda=500
+# จะ shrink slopes ทุกตัวเข้าใกล้ 0 จนกลายเป็น intercept-only model
+
+
+# Exercise 4
+library(plotmo)
+plotres(ridgeModelData)
+plotres(lassoModelData)
+plotres(elasticModelData)
+
+
+```
+
+End-of-File\
+2026-03-25
