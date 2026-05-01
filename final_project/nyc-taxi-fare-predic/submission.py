@@ -31,7 +31,6 @@ from scipy.stats             import loguniform, uniform, randint
 
 RANDOM_STATE = 42
 N_FOLDS      = 5
-TEST_PATH    = "test_taxi.csv"   # ← แก้ถ้าจำเป็น
 
 # ─────────────────────────────────────────────────────────────────────────────
 #  HELPER: Feature Engineering (ต้องเหมือน Phase 1 ทุกประการ)

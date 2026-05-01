@@ -118,7 +118,6 @@ def get_models():
     }
     return models
 
-
 # ─────────────────────────────────────────────────────────────────────────────
 #  3. CROSS-VALIDATION
 # ─────────────────────────────────────────────────────────────────────────────
@@ -224,7 +223,7 @@ def plot_results(results, train_rmse, models, X_train, y_train,
                     color=bar_colors, edgecolor="white",
                     capsize=4, height=0.6)
     ax1.set_xlabel("CV RMSE ($)  ← ยิ่งน้อยยิ่งดี", fontsize=11)
-    ax1.set_title(f"{len(names[0].split())}-fold CV RMSE Comparison",
+    ax1.set_title(f"{N_FOLDS}-fold CV RMSE Comparison",
                   fontweight="bold")
     ax1.axvline(cv_means[best_idx], color="#F5A623",
                 linestyle="--", linewidth=1.2, alpha=0.7)
@@ -418,6 +417,10 @@ def main():
     best_name = names[int(np.argmin(cv_means))]
     np.save("best_predictions.npy", predictions[best_name])
     print(f"\n  💾 Export: best_predictions.npy  (from {best_name})")
+
+    with open("best_model.txt", "w") as f:
+        f.write(best_name)
+    print(f"  💾 Export: best_model.txt  ({best_name})")
 
     return results, predictions, models, train_rmse
 
