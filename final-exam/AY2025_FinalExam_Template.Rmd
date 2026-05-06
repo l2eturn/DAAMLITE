@@ -1,0 +1,533 @@
+---
+title: 'Data Analytics and ML: Final Exam'
+author: "Pongsun B."
+date: "2026-05-06"
+output:
+  html_document:
+    toc: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+if(!require(tidyverse)){install.packages("tidyverse")}
+if(!require(tidytext)){install.packages("tidytext")}
+if(!require(knitr)){install.packages("knitr")}
+if(!require(kableExtra)){install.packages("kableExtra")}
+if(!require(corrplot)){install.packages("corrplot")}
+if(!require(h2o)){install.packages("h2o", dependencies = TRUE)}
+if(!require(mlr)){install.packages("mlr", dependencies = TRUE)}
+if(!require(mlbench)){install.packages("mlbench")}
+if(!require(mclust)){install.packages("mclust")}
+if(!require(factoextra)){install.packages("factoextra")}
+if(!require(fpc)){install.packages("fpc")}
+if(!require(clusterSim)){install.packages("clusterSim")}
+
+```
+
+# Principal Components Analysis
+
+Principal components analysis (PCA) is a method for finding low-dimensional representations of a data set that retain as much of the original variation as possible. The idea is that each of the *n* observations lives in *p*-dimensional space, but not all of these dimensions are equally interesting. In PCA, we look for a smaller number of dimensions that are as interesting as possible, where the concept of *interesting* is measured by the amount that the observations vary along each dimension. Each of the new dimensions found in PCA is a linear combination of the original *p* features. The hope is to use a small subset of these linear feature combinations in further analysis while retaining most of the information present in the original data.
+
+## Data Dictionary
+
+We'll use the `my_basket` data set to illustrate dimension reduction techniques using the principal components analysis (PCA). This data set identifies items and quantities purchased for 2,000 transactions from a grocery store. The objective is [to identify common groupings of items purchased together]{.underline}.
+
+Grocery items and quantities purchased. Each observation represents a single basket of goods that were purchased together.
+
+-   **Problem type**: Unsupervised basket analysis
+
+-   **Response variable**: NA
+
+-   **Features**: 42
+
+-   **Observations**: 2,000
+
+-   **Objective**: Use attributes of each basket to identify common groupings of items purchased together.
+
+To perform dimension reduction techniques in R, generally, the data should be prepared as follows:
+
+1.  Data are in tidy format;
+
+2.  Any missing values in the data must be removed or imputed;
+
+3.  Typically, the data must all be numeric values (e.g., one-hot, label, ordinal encoding categorical features);
+
+4.  Numeric data should be standardized (e.g., centered and scaled) to make features comparable.
+
+The `my_basket` data already fulfills these requirements.
+
+```{r Getting and Exploring the Data, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+myURL = "https://www.dropbox.com/scl/fi/r77tmsfmyvmg6hjpbuovx/my_basket.csv?rlkey=yqi2zz0kl6vyxe9ly51qkxxxd&st=twhcvqqf&dl=1"
+
+my_basket = as_tibble(read_csv(myURL, na = c("", " ", NA), show_col_types = FALSE))
+my_basket
+
+colnames(my_basket)[1] <- "sevenup"
+
+mlr::summarizeColumns(my_basket)
+
+```
+
+## Descriptive Statistics
+
+Dimension reduction methods, such as PCA, focus on reducing the feature space, allowing most of the information or variability in the data set to be explained using fewer features; in the case of PCA, these new features should be uncorrelated.
+
+**[Step 1]**: (3 points) Calculate the correlation matrix for all 42 variables in the `my_basket` dataset. Filter the results to identify only the feature pairs that have a moderate or high correlation ($\ge 0.25$). Format these results into an HTML table using the `knitr::kable()` and `kableExtra` packages. Rename the columns to `Item 1`, `Item 2`, and `Correlation`, and include the caption: *"Various items in my basket data that are moderately correlated"*. Apply the `"striped"` and `"hover"` bootstrap options, and set `full_width = FALSE`.
+
+![](images/Screenshot%202026-05-04%20at%2012.00.47.png){width="300"}
+
+**[Step 2]**: (2 points) Visualize the correlation matrix using the `corrplot()` function. Your plot must only display the upper triangular matrix and omit the principal diagonal. Use the `"color"` method to highlight cells based on their correlation coefficients. Adjust the text size of the variable labels to 0.5 (`tl.cex = 0.5`), the color-legend text size to 0.5 (`cl.cex = 0.5`), and the color-legend width to 0.1 (`cl.ratio = 0.1`).
+
+![](images/clipboard-332431976.png){width="500"}
+
+```{r Descriptive Statistics, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 1
+# Compute feature correlation
+basket_corr <- cor(my_basket)
+
+# Plot features with highest correlations
+basket_corr_tbl <- data.frame(
+  row = rownames(basket_corr)[row(basket_corr)[upper.tri(basket_corr)]],
+  col = colnames(basket_corr)[col(basket_corr)[upper.tri(basket_corr)]],
+  corr = basket_corr[upper.tri(basket_corr)],
+  stringsAsFactors = FALSE
+  )
+
+basket_corr_tbl %>%
+  filter(abs(corr) >= 0.25) %>%
+  arrange(desc(abs(corr))) %>%
+  rename("Item 1" = row, "Item 2" = col, "Correlation" = corr) %>%
+  knitr::kable(caption = "Various items in my basket data that are moderately correlated") %>%
+  kable_styling(bootstrap_options = c("striped", "hover"), full_width = FALSE)
+
+# Step 2
+corrplot(basket_corr,
+         type     = "upper",
+         diag     = FALSE,
+         method   = "color",
+         tl.cex   = 0.5,
+         cl.cex   = 0.5,
+         cl.ratio = 0.1)
+
+```
+
+We often want to explain common attributes such as these in a lower dimensionality than the original data. For example, when we purchase soda we may often buy multiple types at the same time (e.g., Coke, Pepsi, and 7UP). We could reduce these variables to one *latent variable* (i.e., unobserved feature) called "soda". This can help in describing many features in our data set and it can also remove multicollinearity, which can often improve predictive accuracy in downstream supervised models.
+
+## Performing PCA
+
+There are several built-in and external packages to perform PCA in R. We recommend to use **h2o** as it provides consistency across the dimension reduction methods and it also automates much of the data preparation steps previously discussed (i.e., standardizing numeric features, imputing missing values, and encoding categorical features).
+
+**[Step 3]**: (3 points) Initialize an **h2o** cluster and convert the `my_basket` data frame into an **h2o object**. Perform Principal Component Analysis (PCA) using the `h2o.prcomp()` function and assign the output to an object named `my_pca`. Use the `"GramSVD"` method, set `k` equal to the total number of features, standardize the data, and ensure missing values are imputed.
+
+A few of the important arguments you can specify in `h2o.prcomp()` include:
+
+-   `pca_method`: Character string specifying which PC method to use. there are actually a few different approaches to calculating principal components (PCs). When your data contains mostly numeric data (such as `my_basket`), it's best to use `pca_method = "GramSVD"`. When your data contain many categorical variables (or just a few categorical variables with high cardinality) we recommend you use `pca_method = "GLRM"`.
+
+-   `k`: Integer specifying how many PCs to compute. It's best to create [the same number of PCs as there are features]{.underline} and we will determine shortly how to identify the number of PCs to use, where the number of PCs is less than the number of features.
+
+-   `transform`: Character string specifying how (if at all) [your data should be standardized]{.underline}.
+
+-   `impute_missing`: Logical specifying whether or not to impute missing values; if your data have missing values, this will impute them with the corresponding column mean.
+
+-   `max_runtime_secs`: Number specifying the max run time (in seconds); when working with large data sets this will limit the runtime for model training.
+
+The first PC (PC1) captures the most variance followed by PC2, then PC3, etc. We can identify which of our original features contribute to the PCs by assessing the **variable loadings**. The variable loadings for the first PC ($\phi_{11}, \phi_{21}, \cdots , \phi_{p1}$) represent the ***influence*** of each feature on the associated PC.
+
+**[Step 4]**: (4 points) Extract the eigenvectors for the first eight principal components (PC1 through PC8). Transform the data into a long format so that the PCs are in one column and the loadings are in another. Plot the variable loadings using a faceted scatter plot to determine which features contribute most to each PC.
+
+*Hint: Use `tidytext::reorder_within()` to sort the features by their loading values within each facet for better readability*.
+
+The figure below show the variable loadings of PC1. We can see that the largest contributing features are mostly adult beverages (and apparently eating candy bars, smoking, and playing the lottery are also associated with drinking).
+
+![](images/clipboard-4079720863.png){width="500"}
+
+Examine the variable loadings of PC1-PC8 and the names of *latent variable* for the associated PC are given below.
+
+**Latent variables**
+
+```         
+PC1: Alcohol
+PC2: Candy and beverage
+PC3: Sandwich ingredient
+PC4: American-Italian-Indian dish
+PC5: Sandwich and soda
+PC6: Vegatable
+PC7: Lager and Cider
+PC8: Mixed
+```
+
+**[Step 5]**: (2 points) Create a scatter plot to visualize how the original features contribute simultaneously to PC1 (x-axis) and PC2 (y-axis). Use `geom_text()` to label the points with their respective feature names.
+
+![](images/clipboard-2618825666.png){width="500"}
+
+The adult beverages (e.g., whiskey and wine) have a positive contribution to PC1 but have a smaller and negative contribution to PC2. This means that transactions that include purchases of adult beverages tend to have larger than average values for PC1 but smaller than average for PC2.
+
+```{r Performing PCA, warning=FALSE}
+
+h2o.no_progress()  # turn off progress bars for brevity
+h2o.init(max_mem_size = "5g")  # connect to H2O instance
+
+# Step 3
+# Convert data to h2o object
+my_basket.h2o <- as.h2o(my_basket)
+
+# Run PCA
+my_pca <- h2o.prcomp(
+  training_frame = my_basket.h2o,
+  pca_method     = "GramSVD",
+  k              = ncol(my_basket),
+  transform      = "STANDARDIZE",
+  impute_missing = TRUE
+)
+
+# Step 4
+my_eigenvec <- as.data.frame(my_pca@model$eigenvectors)
+
+eigenvec_long <- my_eigenvec %>%
+  select(1:8) %>%
+  mutate(feature = rownames(my_eigenvec)) %>%
+  pivot_longer(cols = -feature, names_to = "PC", values_to = "Loading") %>%
+  mutate(PC = toupper(PC))
+
+eigenvec_long %>%
+  mutate(feature = tidytext::reorder_within(feature, Loading, PC)) %>%
+  ggplot(aes(x = Loading, y = feature)) +
+  geom_point() +
+  facet_wrap(~ PC, scales = "free_y", ncol = 2) +
+  tidytext::scale_y_reordered() +
+  labs(x = "Loading", y = NULL, title = "Variable Loadings for PC1–PC8") +
+  theme_bw() +
+  theme(axis.text.y = element_text(size = 7))
+
+# Step 5
+eigenvec_pc12 <- my_eigenvec %>%
+  mutate(feature = rownames(my_eigenvec)) %>%
+  select(feature, pc1, pc2)
+
+ggplot(eigenvec_pc12, aes(x = pc1, y = pc2, label = feature)) +
+  geom_point() +
+  geom_text(vjust = -0.5, size = 3) +
+  labs(x = "PC1", y = "PC2",
+       title = "Feature Contributions to PC1 and PC2") +
+  theme_bw()
+
+```
+
+## Selecting the number of principal components
+
+### Eigenvalue criterion
+
+The sum of the eigenvalues is equal to the number of variables entered into the PCA; however, the eigenvalues will range from greater than one to near zero. An eigenvalue of 1 means that the principal component would explain about one variable's worth of the variability. The rationale for using the eigenvalue criterion is that each component should explain at least one variable's worth of the variability, and therefore, the eigenvalue criterion states that only components with eigenvalues greater than 1 should be retained.
+
+**[Step 6]**: (2 points) Extract the standard deviations from your PCA model's importance metrics to compute the eigenvalues for each principal component. Create a scatter plot of the eigenvalues across all PCs and add a dashed red horizontal line at $y = 1$ to represent the eigenvalue cutoff criterion.
+
+![](images/clipboard-2298191145.png){width="500"}
+
+Consequently, using this criteria would have us retain the first 10 PCs in `my_basket`.
+
+### Proportion of variance explained criterion
+
+The proportion of variance explained (PVE) identifies the optimal number of PCs to keep based on the total variability that we would like to account for.
+
+*What amount of variability is reasonable?*
+
+This varies by application and the data being used. However, when the PCs are being used for descriptive purposes only, such as customer profiling, then the proportion of variability explained may be lower than otherwise. When the PCs are to be used as derived features for models downstream, then the PVE should be as much as can conveniently be achieved, given any constraints.
+
+**[Step 7]**: (2 points) Extract the Proportion of Variance Explained (PVE) and Cumulative Variance Explained (CVE) from the PCA model. Plot both metrics to visualize how much total variability is accounted for as the number of PCs increases.
+
+![](images/clipboard-896555780.png){width="500"}
+
+```         
+Q: If we desires to choose the number of PCs required to explain at least 60% of the variability in our original data, how many components should we choose?
+A: No. of components = (see printed output below)
+```
+
+### Scree plot criterion
+
+A *scree plot* shows the eigenvalues or PVE for each individual PC. Most scree plots look broadly similar in shape, starting high on the left, falling rather quickly, and then flattening out at some point. This is because the first component usually explains much of the variability, the next few components explain a moderate amount, and the latter components only explain a small fraction of the overall variability. The scree plot criterion looks for the "elbow" in the curve and selects all components just before the line flattens out.
+
+**[Step 8]**: (2 points) Generate a Scree Plot (a bar chart of PVE overlaid with a line chart) to look for the "elbow" in the curve. Once you have evaluated the PCs, use `h2o.predict()` to generate the dimensionality-reduced representation of your data. Bind these new PC columns to your original `my_basket` dataframe and save it as `basket_pca`.
+
+```         
+Q: How many principal components should we keep before the line in thescree plot flattens out?
+A: No. of components = (evaluate from the elbow in the scree plot above)
+```
+
+```{r Selecting the number of principal components, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 6
+# Compute eigenvalues (variance = SD^2)
+eigenval <- unlist(my_pca@model$importance["Standard deviation", ])^2
+
+my_eigen <- data.frame(
+  PC         = seq_along(eigenval),
+  Eigenvalue = eigenval
+)
+
+ggplot(my_eigen, aes(x = PC, y = Eigenvalue)) +
+  geom_point() +
+  geom_hline(yintercept = 1, linetype = "dashed", color = "red") +
+  labs(x = "Principal Component", y = "Eigenvalue",
+       title = "Eigenvalue per Principal Component") +
+  theme_bw()
+
+# Number of PCs with eigenvalue >= 1
+cat("PCs with eigenvalue >= 1:", sum(eigenval >= 1), "\n")
+
+# Step 7
+# Extract PVE and CVE
+my_variance <- data.frame(
+  PC  = seq_along(my_pca@model$importance %>% unlist() %>% .[seq(3, length(.), by = 3)]),
+  PVE = my_pca@model$importance %>% .[2, ] %>% unlist(),
+  CVE = my_pca@model$importance %>% .[3, ] %>% unlist()
+)
+
+my_variance %>%
+  pivot_longer(cols = c(PVE, CVE), names_to = "Metric", values_to = "Value") %>%
+  ggplot(aes(x = PC, y = Value, color = Metric)) +
+  geom_point() +
+  geom_line() +
+  geom_hline(yintercept = 0.6, linetype = "dashed", color = "gray40") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Principal Component", y = "Variance Explained",
+       title = "PVE and CVE by Principal Component") +
+  theme_bw()
+
+# How many PCs required to explain at least 60% of total variability
+n_pcs_60 <- min(which(my_variance$CVE >= 0.6))
+cat("PCs needed for >= 60% variance:", n_pcs_60, "\n")
+
+# Step 8
+# Scree plot: bar (PVE) + line overlay
+ggplot(my_variance, aes(x = PC, y = PVE)) +
+  geom_col(fill = "steelblue", alpha = 0.7) +
+  geom_line(color = "red") +
+  geom_point(color = "red") +
+  scale_y_continuous(labels = scales::percent) +
+  labs(x = "Principal Component", y = "Proportion of Variance Explained",
+       title = "Scree Plot") +
+  theme_bw()
+
+# Generate PC scores and bind to original data
+basket_pca_scores <- h2o.predict(my_pca, my_basket.h2o) %>% as.data.frame()
+basket_pca        <- bind_cols(my_basket, basket_pca_scores)
+
+# h2o.shutdown(prompt = FALSE)
+
+```
+
+# Clustering with k-means
+
+**[Step 9]**: (4 points) Set up a clustering task using the `mlr` package with your original data. Define a k-means learner (`"cluster.kmeans"`) and set its parameters to `iter.max = 50` and `nstart = 10`. Create a grid search to tune the `centers` (1 to 15) and the `algorithm` ("Hartigan-Wong", "Lloyd", "MacQueen"). Perform the tuning using 10-fold cross-validation, evaluating performance based on the pseudo F statistic (`G1`) and the Davies-Bouldin index (`db`).
+
+**[Step 10]**: (5 points) Extract the hyperparameter tuning data and reshape it into a long format. Create a faceted line-and-point plot using `ggplot2` to visualize how the `G1` and `db` metrics vary across the number of clusters and algorithm choices. Allow the y-axes to scale freely for each facet.
+
+For the optimal number of clusters, the Davies-Bouldin index is minimized, while the pseudo F statistic (G1) are maximized.
+
+*What happen to out plot? There is extensive disagreement of the internal metrics to determine the optimal value of clusters.*
+
+```         
+Q: Should we proceed with the k-means algorithm?
+A: No — the internal metrics (G1 and db) disagree across cluster numbers and algorithms, indicating no clear, stable cluster structure is recoverable by k-means on this dataset.
+```
+
+```{r Clustering with k-means, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+# Step 9
+# Set up clustering task
+basket_task <- makeClusterTask(data = as.data.frame(my_basket))
+
+# Define k-means learner with fixed hyperparameters
+kmeans_lrn <- makeLearner(
+  "cluster.kmeans",
+  predict.type = "response",
+  par.vals     = list(iter.max = 50, nstart = 10)
+)
+
+# Define search space: centers 1-15 x 3 algorithms
+ps <- makeParamSet(
+  makeDiscreteParam("centers",   values = as.list(1:15)),
+  makeDiscreteParam("algorithm", values = list("Hartigan-Wong", "Lloyd", "MacQueen"))
+)
+
+# Grid search control
+ctrl  <- makeTuneControlGrid()
+
+# 10-fold cross-validation
+rdesc <- makeResampleDesc("CV", iters = 10)
+
+# Tune with G1 (pseudo F) and db (Davies-Bouldin)
+set.seed(123)
+tuned_kmeans <- tuneParams(
+  learner   = kmeans_lrn,
+  task      = basket_task,
+  resampling = rdesc,
+  par.set   = ps,
+  control   = ctrl,
+  measures  = list(G1, db)
+)
+
+# Step 10
+# Extract tuning results
+tuning_df <- as.data.frame(tuned_kmeans$opt.path)
+
+tuning_df %>%
+  mutate(centers = as.integer(as.character(centers))) %>%
+  pivot_longer(cols = c(G1.test.mean, db.test.mean),
+               names_to  = "Metric",
+               values_to = "Value") %>%
+  ggplot(aes(x = centers, y = Value, color = algorithm, group = algorithm)) +
+  geom_line() +
+  geom_point() +
+  facet_wrap(~ Metric, scales = "free_y",
+             labeller = labeller(Metric = c(G1.test.mean = "Pseudo F (G1) — higher is better",
+                                            db.test.mean = "Davies-Bouldin (db) — lower is better"))) +
+  scale_x_continuous(breaks = 1:15) +
+  labs(x = "Number of Clusters", y = "Metric Value", color = "Algorithm",
+       title = "K-means Hyperparameter Tuning Results") +
+  theme_bw()
+
+```
+
+# Clustering with Gaussian Mixture Modeling (GMM)
+
+The *k*-means clustering is heuristic-based algorithm that derive clusters directly based on the data rather than incorporating a measure of probability or uncertainty to the cluster assignments. Model-based clustering attempts to address this concern and provide *soft assignment* where observations have a probability of belonging to each cluster. Moreover, model-based clustering provides the added benefit of automatically identifying the optimal number of clusters.
+
+Here, we'll apply the Gaussian mixture models (GMM), which are one of the most popular model-based clustering approaches, with the `my_basket` data to demonstrate GMMs on a more modern sized data set.
+
+**[Step 11]**: (2 points) Apply Gaussian Mixture Modeling to the original `my_basket` dataset using the `Mclust()` function testing for 1 to 20 clusters. Summarize the results and plot the Bayesian Information Criterion (BIC). Format the legend to sit at the bottom right with 5 columns. Save this model as `my_basket_mc`.
+
+```         
+The optimal GMM method is (see summary output) with (see summary output) clusters.
+```
+
+**[Step 12]**: (2 points) Repeat the GMM clustering process (testing 1 to 20 clusters), but this time use only the first 6 principal components from your `basket_pca` dataset. Plot the BIC and save this model as `my_basket_mc2`.
+
+```         
+the optimal GMM method is (see summary output) with (see summary output) clusters.
+```
+
+**[Step 13]**: (2 points) Using the first GMM model (`my_basket_mc`), extract the classification probabilities (`my_basket_mc$z`). Reshape the data and plot histograms faceted by cluster to assess the probability distributions of cluster membership.
+
+![](images/clipboard-1882609854.png){width="500"}
+
+The above plot illustrates very bimodal distributions of probabilities. Observations with greater than 0.50 probability will be aligned to a given cluster so this bimodality is preferred as it illustrates that observations have either a very high probability of the cluster they are aligned to or a very low probability, which means they would not be aligned to that cluster.
+
+Looking at cluster `C3`, we see that there are very few, if any, observations in the middle of the probability range. `C3` also has far fewer observations with high probability. This means that `C3` is the smallest of the clusters (confirmed using `summary(my_basket_mc))`, and that `C3` is a compact cluster. As clusters have more observations with middling levels of probability (i.e., 0.25–0.75), their clusters are usually less compact. Therefore, cluster `C2` is less compact than cluster `C3`.
+
+**[Step 14]**: (2 points) Identify the "noisy data" by finding observations where the uncertainty of their assigned cluster membership is greater than 0.25. Create a faceted scatter plot showing the uncertainty levels of these specific observations across the clusters.
+
+Hint: Extract the cluster membership for each observation with `my_basket_mc$classification`.
+
+![](images/clipboard-1380982772.png){width="500"}
+
+Notice that cluster three is not represented. The cluster three had very strong membership probabilities, so it has no observations with uncertainty greater than 0.25.
+
+**[Step 15]**: (2 points) Standardize the variables in the `my_basket` dataset and append the GMM cluster assignments. Filter the data for observations belonging to Cluster 2. Calculate the average standardized consumption for each item in this cluster and visualize the results using a point plot sorted by average consumption.
+
+![](images/clipboard-1741665269.png){width="500"}
+
+The plot shows that cluster two baskets have above average consumption for [candy bars, lottery tickets, cigarettes, and newspaper]{.underline}.
+
+Perhaps, the baskets in this cluster are the **recreational baskets** made on the weekends when people just want to sit on the deck and relax with cigarettes and candy bars. This group is likely to receive marketing ads for candy bars and the like rather than the items at the bottom of the plot, which represent the items this group consumes less than the average observations.
+
+```{r Clustering with GMM, message=FALSE, warning=FALSE, tidy=TRUE, tidy.opts=list(width.cutoff=80)}
+
+library(mclust)
+
+# Step 11
+my_basket_mc <- Mclust(my_basket, G = 1:20)
+summary(my_basket_mc)
+
+plot(my_basket_mc, what = "BIC")
+legend("bottomright", ncol = 5,
+       legend = colnames(my_basket_mc$BIC),
+       col    = mclust.options("classPlotColors")[seq_len(ncol(my_basket_mc$BIC))],
+       lty    = seq_len(ncol(my_basket_mc$BIC)),
+       pch    = seq_len(ncol(my_basket_mc$BIC)),
+       bty    = "n", cex = 0.7)
+
+# Step 12
+pc6_data     <- basket_pca %>% select(PC1:PC6)
+my_basket_mc2 <- Mclust(pc6_data, G = 1:20)
+summary(my_basket_mc2)
+
+plot(my_basket_mc2, what = "BIC")
+legend("bottomright", ncol = 5,
+       legend = colnames(my_basket_mc2$BIC),
+       col    = mclust.options("classPlotColors")[seq_len(ncol(my_basket_mc2$BIC))],
+       lty    = seq_len(ncol(my_basket_mc2$BIC)),
+       pch    = seq_len(ncol(my_basket_mc2$BIC)),
+       bty    = "n", cex = 0.7)
+
+# Step 13
+probs <- as.data.frame(my_basket_mc$z)
+colnames(probs) <- paste0("C", seq_len(ncol(probs)))
+
+probs %>%
+  mutate(obs = row_number()) %>%
+  pivot_longer(cols = -obs, names_to = "Cluster", values_to = "Probability") %>%
+  ggplot(aes(x = Probability)) +
+  geom_histogram(bins = 30, fill = "steelblue", color = "white") +
+  facet_wrap(~ Cluster, scales = "free_y") +
+  labs(x = "Membership Probability", y = "Count",
+       title = "Distribution of Cluster Membership Probabilities") +
+  theme_bw()
+
+# Step 14
+noisy_obs <- data.frame(
+  obs        = seq_along(my_basket_mc$uncertainty),
+  uncertainty = my_basket_mc$uncertainty,
+  cluster    = factor(paste0("C", my_basket_mc$classification))
+) %>%
+  filter(uncertainty > 0.25)
+
+ggplot(noisy_obs, aes(x = obs, y = uncertainty)) +
+  geom_point(alpha = 0.6) +
+  facet_wrap(~ cluster) +
+  labs(x = "Observation Index", y = "Uncertainty",
+       title = "Noisy Observations (Uncertainty > 0.25) by Cluster") +
+  theme_bw()
+
+# Step 15
+my_basket_scaled <- scale(my_basket) %>%
+  as.data.frame() %>%
+  mutate(cluster = my_basket_mc$classification)
+
+my_basket_scaled %>%
+  filter(cluster == 2) %>%
+  select(-cluster) %>%
+  summarise(across(everything(), mean)) %>%
+  pivot_longer(everything(), names_to = "item", values_to = "avg_consumption") %>%
+  ggplot(aes(x = avg_consumption, y = reorder(item, avg_consumption))) +
+  geom_point() +
+  geom_vline(xintercept = 0, linetype = "dashed", color = "gray50") +
+  labs(x = "Average Standardized Consumption", y = NULL,
+       title = "Cluster 2: Average Standardized Item Consumption") +
+  theme_bw()
+
+```
+
+# Discussion
+
+Answer the following questions. (6 points) [ตอบเป็นภาษาไทยก็ได้]
+
+Q1: Beyond PCA, what other dimensionality reduction techniques could be applied to the `my_basket` dataset? Briefly state the primary advantage of the alternative technique you suggest.
+
+A1: **UMAP (Uniform Manifold Approximation and Projection)** is a strong alternative. Its primary advantage over PCA is that it is a **non-linear** method, meaning it can capture complex, curved structures in the data that PCA (a linear method) cannot reveal. Unlike t-SNE, UMAP also preserves **global structure** alongside local neighbourhood relationships, and it runs significantly faster — making it practical for datasets of this size.
+
+Q2: Based on your analysis in Step 10, the k-means algorithm struggled to find a clear, optimal cluster solution for the `my_basket` data. Discuss the characteristics of this specific dataset that likely caused k-means to perform poorly.
+
+A2: Several characteristics of `my_basket` make it a poor fit for k-means: (1) **Sparse, non-negative count data** — grocery basket quantities are mostly near-zero, producing a highly sparse, high-dimensional space where **Euclidean distance** (the only metric k-means uses) loses its discriminative power. (2) **Non-spherical cluster geometry** — k-means assumes clusters are **convex and roughly equal in size**, but purchasing patterns form overlapping, irregularly shaped groupings that violate this assumption. (3) **High dimensionality (42 features)** — the curse of dimensionality means distances between observations become nearly uniform, so k-means cannot find meaningful separation. Together, these factors explain the internal metrics (G1 and db) failing to agree on an optimal *k*.
+
+Q3: In unsupervised learning, it is crucial to ensure that our clusters are stable and not just random artifacts of our specific sample. What technique and metric should we apply to quantify how well the cluster memberships agree with each other across different variations of the data?
+
+A3: **Bootstrap stability analysis** via `clusterboot()` from the `fpc` package. This technique repeatedly resamples the data (with replacement) and re-clusters each bootstrap sample, then measures how consistently the same observations end up together. The stability of each cluster is quantified using the **Jaccard similarity coefficient** — the overlap between the original cluster and its best-matching bootstrap cluster. A Jaccard value **\> 0.75** indicates a stable cluster, values between 0.60–0.75 suggest moderate stability, and values **\< 0.60** indicate the cluster is likely a random artifact.
+
+------------------------------------------------------------------------
+
+End-of-File\
+2026-05-06
